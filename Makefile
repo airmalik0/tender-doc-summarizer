@@ -49,7 +49,11 @@ down: ## Остановить контейнеры
 	docker compose down
 
 .PHONY: smoke
-smoke: ## Проверить поднятый сервис: health и разбор демо-документа
+smoke: ## Проверить поднятый сервис: health и разбор демо-документа (PORT=... если порт другой)
+	@curl -sf http://localhost:$(PORT)/api/v1/health > /dev/null 2>&1 || { \
+		echo "На http://localhost:$(PORT) не отвечает сервис."; \
+		echo "Поднимите его (make up или make run) либо укажите порт: PORT=8090 make smoke"; \
+		exit 1; }
 	@curl -sf http://localhost:$(PORT)/api/v1/health | $(PY) -m json.tool
 	@curl -sf -X POST "http://localhost:$(PORT)/api/v1/summarize/sample?name=tender-44fz-remont-krovli.pdf" \
 		| $(PY) -c "import json,sys; d=json.load(sys.stdin); print('достоверность:', d['confidence'], '| цена:', d['price']['amount'], '| требований:', len(d['requirements']), '| санкций:', len(d['penalties']))"

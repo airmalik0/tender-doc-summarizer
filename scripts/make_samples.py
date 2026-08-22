@@ -12,9 +12,11 @@
 from __future__ import annotations
 
 import io
+import re
 import sys
 from pathlib import Path
 
+from reportlab import rl_config
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4
@@ -35,6 +37,11 @@ from reportlab.platypus import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sample_content import DOCUMENTS
+
+# Воспроизводимая сборка: без этого reportlab кладёт в файл текущую дату и
+# случайные идентификаторы, и пересборка образцов пачкает git status
+# изменениями, которых на самом деле нет.
+rl_config.invariant = 1
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "samples"
@@ -206,7 +213,18 @@ def rasterize(pdf_bytes: bytes, dpi: int = 150) -> bytes:
         append_images=images[1:],
         resolution=float(dpi),
     )
-    return buffer.getvalue()
+    return _freeze_dates(buffer.getvalue())
+
+
+# Pillow ставит в PDF текущее время, и два запуска в разные секунды дают разные
+# файлы. Дата заменяется на постоянную ровно той же длины: иначе поедут
+# смещения в таблице xref и файл перестанет открываться.
+_PDF_DATE_RE = re.compile(rb"D:\d{14}Z")
+_FIXED_DATE = b"D:20000101000000Z"
+
+
+def _freeze_dates(pdf_bytes: bytes) -> bytes:
+    return _PDF_DATE_RE.sub(_FIXED_DATE, pdf_bytes)
 
 
 def main() -> None:
