@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тендерный суммаризатор</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #16191d;
+    --muted: #6b7280;
+    --line: #e3e6ea;
+    --accent: #1f5fd6;
+    --accent-soft: #eaf0fd;
+    --ok: #10794a;
+    --ok-soft: #e6f4ed;
+    --warn: #9a5b00;
+    --warn-soft: #fdf3e2;
+    --bad: #b3261e;
+    --bad-soft: #fdeceb;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.2px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .badge {
+    font-size: 12px; padding: 3px 9px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); border: 1px solid #d6e2fb; white-space: nowrap;
+  }
+  .badge.gray { background: #eef0f3; color: var(--muted); border-color: var(--line); }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px; margin-bottom: 16px;
+  }
+  #drop {
+    border: 2px dashed #c7ccd4; border-radius: var(--radius); padding: 34px 20px;
+    text-align: center; cursor: pointer; transition: .15s; background: var(--panel);
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  #drop b { display: block; font-size: 16px; margin-bottom: 4px; }
+  #drop span { color: var(--muted); font-size: 13px; }
+  .samples { margin-top: 14px; }
+  .samples-title { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  button.sample {
+    display: block; width: 100%; text-align: left; margin-bottom: 6px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 12px; font: inherit; font-size: 13.5px; color: var(--ink); transition: .12s;
+  }
+  button.sample:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+  button.sample:disabled { opacity: .55; cursor: default; }
+  button.sample small { color: var(--muted); }
+  .status { display: none; align-items: center; gap: 10px; font-size: 14px; }
+  .status.on { display: flex; }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid #cfd6e0; border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite; flex: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { color: var(--bad); background: var(--bad-soft); border: 1px solid #f3cdc9; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 15px; }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card .value { font-size: 19px; font-weight: 600; margin-top: 4px; word-break: break-word; }
+  .card .value.small { font-size: 15px; font-weight: 500; }
+  .card .note { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  h2 { font-size: 15px; margin: 22px 0 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean > li { border-top: 1px solid var(--line); padding: 11px 0; }
+  ul.clean > li:first-child { border-top: none; padding-top: 0; }
+  .chip {
+    font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: #eef0f3;
+    color: var(--muted); border: 1px solid var(--line); white-space: nowrap;
+  }
+  .chip.kind { background: var(--accent-soft); color: var(--accent); border-color: #d6e2fb; }
+  .chip.req { background: var(--bad-soft); color: var(--bad); border-color: #f3cdc9; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .ev {
+    font-size: 12px; cursor: pointer; border: 1px solid var(--line); background: var(--panel);
+    border-radius: 999px; padding: 2px 9px; color: var(--muted); font-family: inherit;
+  }
+  .ev:hover { border-color: var(--accent); color: var(--accent); }
+  .ev.bad { color: var(--bad); border-color: #f3cdc9; background: var(--bad-soft); }
+  .quote {
+    display: none; margin-top: 8px; padding: 9px 12px; border-left: 3px solid var(--accent);
+    background: #f8f9fb; font-size: 13.5px; color: #33383f; border-radius: 0 6px 6px 0;
+  }
+  .quote.on { display: block; }
+  .quote.bad { border-left-color: var(--bad); }
+  .quote .vtag { display: block; font-size: 11.5px; margin-top: 6px; color: var(--muted); }
+  .warns { background: var(--warn-soft); border: 1px solid #f2dfba; }
+  .warns li { font-size: 13.5px; padding: 3px 0 3px 18px; position: relative; list-style: none; }
+  .warns li::before { content: "!"; position: absolute; left: 4px; color: var(--warn); font-weight: 700; }
+  .risks li { padding: 4px 0 4px 18px; position: relative; list-style: none; font-size: 14px; }
+  .risks li::before { content: "→"; position: absolute; left: 0; color: var(--warn); }
+  .meta { font-size: 12.5px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+  details.raw summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details.raw pre {
+    background: #1b1f24; color: #dfe3e8; padding: 14px; border-radius: 8px; overflow: auto;
+    font-size: 12px; max-height: 460px; line-height: 1.5;
+  }
+  .conf { display: flex; align-items: center; gap: 8px; }
+  .bar { flex: 1; height: 6px; background: #e6e9ed; border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 3px; }
+  footer { margin-top: 26px; font-size: 12.5px; color: var(--muted); text-align: center; }
+  footer a { color: var(--accent); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Тендерный суммаризатор</h1>
+    <div class="badges" id="badges"></div>
+  </header>
+  <p class="sub">
+    Загрузите PDF с документацией госзакупки — сервис извлечёт сумму контракта, сроки,
+    требования к исполнителю и меры ответственности. Каждое значение подтверждается
+    цитатой из документа, а цитата проверяется поиском по исходному тексту.
+  </p>
+
+  <div class="panel" id="uploader">
+    <div id="drop">
+      <b>Перетащите PDF сюда</b>
+      <span>или нажмите, чтобы выбрать файл — до <span id="limit">25</span> МБ</span>
+      <input type="file" id="file" accept="application/pdf,.pdf" class="hidden">
+    </div>
+    <div class="samples">
+      <div class="samples-title">Или разберите документ из поставки:</div>
+      <div id="samples"></div>
+    </div>
+  </div>
+
+  <div class="panel status" id="status">
+    <div class="spinner"></div>
+    <div id="status-text">Разбираю документ…</div>
+    <div id="elapsed" style="color:var(--muted);font-size:13px"></div>
+  </div>
+
+  <div class="panel error hidden" id="error"></div>
+
+  <div id="result" class="hidden"></div>
+
+  <footer>
+    API и схемы ответа — <a href="/docs">/docs</a> · исходники и описание алгоритма — в README и SOLUTION.md
+  </footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => (
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+));
+
+const money = (value, currency) => {
+  if (value === null || value === undefined) return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return number.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    + (currency === "RUB" || !currency ? " ₽" : " " + currency);
+};
+
+const ruDate = (iso) => {
+  if (!iso) return null;
+  const parsed = new Date(iso + "T00:00:00");
+  return Number.isNaN(parsed.getTime())
+    ? iso
+    : parsed.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
+};
+
+let evidenceCounter = 0;
+function evidenceHtml(evidence) {
+  if (!evidence) return "";
+  const id = "q" + (++evidenceCounter);
+  const bad = evidence.verified ? "" : " bad";
+  const mark = evidence.verified ? "✓ подтверждена поиском по документу" : "✗ в тексте документа не найдена";
+  return `<button class="ev${bad}" onclick="document.getElementById('${id}').classList.toggle('on')">
+      стр. ${escapeHtml(evidence.page)} ${evidence.verified ? "✓" : "✗"}
+    </button>
+    <div class="quote${bad}" id="${id}">«${escapeHtml(evidence.quote)}»<span class="vtag">${mark}</span></div>`;
+}
+
+function confidenceColor(value) {
+  if (value >= 0.8) return "var(--ok)";
+  if (value >= 0.55) return "var(--warn)";
+  return "var(--bad)";
+}
+
+function render(data) {
+  const t = data.timeline || {};
+  const deadline = t.application_deadline;
+  const end = t.contract_end;
+  const price = data.price;
+
+  const cards = [
+    ["Цена контракта", price ? money(price.amount, price.currency) : "—",
+      price ? `НДС ${escapeHtml(price.vat)}${price.confirmed_by_rules ? " · сверено с парсером ✓" : " · парсером не подтверждена"}` : ""],
+    ["Подача заявок до", deadline ? (ruDate(deadline.date) || escapeHtml(deadline.raw_text) || "—") : "—", ""],
+    ["Исполнение до", end ? (ruDate(end.date) || escapeHtml(end.raw_text) || "—") : (t.duration_text ? escapeHtml(t.duration_text.slice(0, 70)) : "—"), ""],
+    ["Обеспечение контракта", data.contract_security ? money(data.contract_security.amount, "RUB") : "не установлено", ""],
+  ];
+
+  let html = `<div class="cards">` + cards.map(([label, value, note]) => `
+    <div class="card">
+      <div class="label">${label}</div>
+      <div class="value${String(value).length > 22 ? " small" : ""}">${value}</div>
+      ${note ? `<div class="note">${note}</div>` : ""}
+    </div>`).join("") + `</div>`;
+
+  html += `<div class="panel" style="margin-top:16px">
+    <div class="conf">
+      <span style="font-size:13px;color:var(--muted)">Достоверность разбора</span>
+      <div class="bar"><i style="width:${Math.round(data.confidence * 100)}%;background:${confidenceColor(data.confidence)}"></i></div>
+      <b style="color:${confidenceColor(data.confidence)}">${data.confidence.toFixed(2)}</b>
+    </div>
+    ${data.summary ? `<p style="margin:14px 0 0">${escapeHtml(data.summary)}</p>` : ""}
+    ${(data.risks || []).length ? `<h2>Риски для исполнителя</h2><ul class="risks">${
+      data.risks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul>` : ""}
+  </div>`;
+
+  if ((data.warnings || []).length) {
+    html += `<div class="panel warns"><ul style="padding:0;margin:0">${
+      data.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul></div>`;
+  }
+
+  const identity = [
+    ["Предмет закупки", data.subject],
+    ["Заказчик", data.customer],
+    ["Извещение", data.procurement_number],
+    ["Закон", data.law],
+  ].filter(([, value]) => value);
+  if (identity.length) {
+    html += `<div class="panel"><ul class="clean">${identity.map(([label, value]) => `
+      <li><span class="chip">${label}</span> <span style="margin-left:6px">${escapeHtml(value)}</span></li>`).join("")}</ul></div>`;
+  }
+
+  if ((t.stages || []).length) {
+    html += `<div class="panel"><h2 style="margin-top:0">Этапы исполнения</h2><ul class="clean">${
+      t.stages.map((stage) => `<li><b>${escapeHtml(stage.name)}</b>${
+        stage.deadline_text ? ` — ${escapeHtml(stage.deadline_text)}` : ""}
+        <div class="row">${evidenceHtml(stage.evidence)}</div></li>`).join("")}</ul></div>`;
+  }
+
+  if ((data.requirements || []).length) {
+    html += `<div class="panel"><h2 style="margin-top:0">Требования к исполнителю · ${data.requirements.length}</h2><ul class="clean">${
+      data.requirements.map((req) => `<li>${escapeHtml(req.text)}
+        <div class="row">
+          <span class="chip kind">${escapeHtml(req.category)}</span>
+          ${req.mandatory ? '<span class="chip req">обязательное</span>' : '<span class="chip">желательное</span>'}
+          ${evidenceHtml(req.evidence)}
+        </div></li>`).join("")}</ul></div>`;
+  }
+
+  if ((data.penalties || []).length) {
+    html += `<div class="panel"><h2 style="margin-top:0">Штрафы и пени · ${data.penalties.length}</h2><ul class="clean">${
+      data.penalties.map((pen) => `<li><b>${escapeHtml(pen.kind)}</b>${
+        pen.amount_text ? ` — ${escapeHtml(pen.amount_text)}` : ""}
+        <div style="margin-top:3px">${escapeHtml(pen.trigger)}</div>
+        ${pen.calculation ? `<div style="color:var(--muted);font-size:13.5px;margin-top:3px">Расчёт: ${escapeHtml(pen.calculation)}</div>` : ""}
+        <div class="row"><span class="chip">${escapeHtml(pen.party)}</span>${evidenceHtml(pen.evidence)}</div>
+      </li>`).join("")}</ul></div>`;
+  }
+
+  const meta = data.meta || {};
+  const doc = data.document || {};
+  html += `<div class="panel">
+    <div class="meta">
+      <span>Файл: ${escapeHtml(doc.filename)}</span>
+      <span>Страниц: ${doc.pages}</span>
+      <span>Символов: ${doc.characters}</span>
+      <span>Источник текста: ${escapeHtml(doc.text_source)}</span>
+      <span>Провайдер: ${escapeHtml(meta.provider)}${meta.model ? " / " + escapeHtml(meta.model) : ""}</span>
+      <span>Фрагментов: ${meta.chunks}, запросов: ${meta.llm_calls}</span>
+      ${meta.input_tokens ? `<span>Токены: ${meta.input_tokens} → ${meta.output_tokens}</span>` : ""}
+      <span>Время: ${meta.total_ms} мс${meta.cached ? " (из кэша)" : ""}</span>
+    </div>
+    <details class="raw" style="margin-top:12px">
+      <summary>Показать полный JSON ответа</summary>
+      <pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+    </details>
+  </div>`;
+
+  $("result").innerHTML = html;
+  $("result").classList.remove("hidden");
+}
+
+let timer = null;
+function busy(on, text) {
+  $("status").classList.toggle("on", on);
+  if (text) $("status-text").textContent = text;
+  clearInterval(timer);
+  if (on) {
+    // Первый разбор документа идёт в модель и занимает около минуты.
+    // Счётчик показывает, что сервис жив, а не завис.
+    const started = Date.now();
+    $("elapsed").textContent = "0 с";
+    timer = setInterval(() => {
+      const seconds = Math.round((Date.now() - started) / 1000);
+      $("elapsed").textContent = seconds + " с"
+        + (seconds > 12 ? " · документ обрабатывается моделью, обычно это 30–90 секунд" : "")
+        + (seconds > 100 ? " · повторный запрос того же файла вернётся из кэша мгновенно" : "");
+    }, 1000);
+  }
+  document.querySelectorAll("button.sample").forEach((btn) => { btn.disabled = on; });
+  if (on) {
+    $("error").classList.add("hidden");
+    $("result").classList.add("hidden");
+  }
+}
+
+function showError(message) {
+  $("error").textContent = message;
+  $("error").classList.remove("hidden");
+}
+
+async function send(url, options, label) {
+  busy(true, label);
+  try {
+    const response = await fetch(url, options);
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error((payload && payload.message) || `Ошибка ${response.status}`);
+    }
+    render(payload);
+  } catch (err) {
+    showError("Не удалось разобрать документ: " + err.message);
+  } finally {
+    busy(false);
+  }
+}
+
+function upload(file) {
+  if (!file) return;
+  const body = new FormData();
+  body.append("file", file);
+  send("/api/v1/summarize", { method: "POST", body }, `Разбираю «${file.name}»…`);
+}
+
+const drop = $("drop");
+drop.addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", (event) => upload(event.target.files[0]));
+["dragenter", "dragover"].forEach((name) =>
+  drop.addEventListener(name, (event) => { event.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((name) =>
+  drop.addEventListener(name, (event) => { event.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (event) => upload(event.dataTransfer.files[0]));
+
+(async () => {
+  try {
+    const health = await (await fetch("/api/v1/health")).json();
+    const badges = [
+      `Провайдер: ${health.provider}${health.model ? " · " + health.model : ""}`,
+      `OCR: ${health.ocr_available ? "доступен" : "недоступен"}`,
+      `v${health.version}`,
+    ];
+    $("badges").innerHTML = badges.map((text, index) =>
+      `<span class="badge${index === 0 && health.provider === "offline" ? " gray" : ""}">${escapeHtml(text)}</span>`).join("");
+    if (health.provider === "offline") {
+      showError("Ключ LLM не задан — работает режим детерминированных правил. "
+        + "Впишите ANTHROPIC_API_KEY в .env и перезапустите, чтобы включить полное извлечение.");
+    }
+  } catch { /* /health недоступен — интерфейс всё равно работает */ }
+
+  try {
+    const samples = await (await fetch("/api/v1/samples")).json();
+    $("samples").innerHTML = samples.map((sample) =>
+      `<button class="sample" data-name="${escapeHtml(sample.name)}">
+         ${escapeHtml(sample.title)}<br><small>${escapeHtml(sample.name)} · ${sample.size_kb} КБ</small>
+       </button>`).join("");
+    document.querySelectorAll("button.sample").forEach((button) => {
+      button.addEventListener("click", () => send(
+        "/api/v1/summarize/sample?name=" + encodeURIComponent(button.dataset.name),
+        { method: "POST" },
+        "Разбираю демонстрационный документ…",
+      ));
+    });
+  } catch { /* примеров нет — не беда */ }
+})();
+</script>
+</body>
+</html>

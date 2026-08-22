@@ -97,25 +97,33 @@ def build_extraction(pages: list[tuple[int, str]]) -> dict[str, Any]:
     findings = heuristics.analyze(pages)
 
     return {
-        "subject": _anchored_value(pages, _SUBJECT_ANCHORS),
-        "customer": _anchored_value(pages, _CUSTOMER_ANCHORS),
-        "procurement_number": findings.procurement_number,
+        "subject": _anchored_value(pages, _SUBJECT_ANCHORS) or "",
+        "customer": _anchored_value(pages, _CUSTOMER_ANCHORS) or "",
+        "procurement_number": findings.procurement_number or "",
         "law": findings.law,
         "price": _money(findings.price, vat_hint=_vat_hint(pages)),
         "contract_security": _money(findings.contract_security, vat_hint="не указано"),
         "application_deadline": _date(findings.application_deadline),
-        "contract_start": None,
-        "contract_end": None,
-        "duration_text": _duration_text(pages),
+        "contract_start": EMPTY_DATE,
+        "contract_end": EMPTY_DATE,
+        "duration_text": _duration_text(pages) or "",
         "stages": [],
         "requirements": _requirements(pages),
         "penalties": _penalties(findings.penalties),
     }
 
 
-def _money(hit: heuristics.MoneyHit | None, vat_hint: str) -> dict[str, Any] | None:
+# Схема провайдера не допускает null, поэтому «нет данных» выражается пустышкой.
+EMPTY_EVIDENCE: dict[str, Any] = {"page": 0, "quote": ""}
+EMPTY_MONEY: dict[str, Any] = {
+    "amount": 0.0, "currency": "", "vat": "не указано", "raw_text": "", "evidence": EMPTY_EVIDENCE,
+}
+EMPTY_DATE: dict[str, Any] = {"iso_date": "", "raw_text": "", "evidence": EMPTY_EVIDENCE}
+
+
+def _money(hit: heuristics.MoneyHit | None, vat_hint: str) -> dict[str, Any]:
     if hit is None:
-        return None
+        return EMPTY_MONEY
     return {
         "amount": float(hit.amount),
         "currency": "RUB",
@@ -125,9 +133,9 @@ def _money(hit: heuristics.MoneyHit | None, vat_hint: str) -> dict[str, Any] | N
     }
 
 
-def _date(hit: heuristics.DateHit | None) -> dict[str, Any] | None:
+def _date(hit: heuristics.DateHit | None) -> dict[str, Any]:
     if hit is None:
-        return None
+        return EMPTY_DATE
     return {
         "iso_date": hit.value.isoformat(),
         "raw_text": hit.raw,
@@ -259,8 +267,8 @@ def _penalties(hits: list[heuristics.PenaltyHit]) -> list[dict[str, Any]]:
                 "kind": hit.kind,
                 "party": _party(lowered),
                 "trigger": hit.sentence[:250],
-                "calculation": _calculation(hit.sentence),
-                "amount_text": _amount_text(hit.sentence),
+                "calculation": _calculation(hit.sentence) or "",
+                "amount_text": _amount_text(hit.sentence) or "",
                 "evidence": {"page": hit.page, "quote": hit.sentence[:300]},
             }
         )

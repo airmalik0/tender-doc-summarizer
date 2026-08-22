@@ -62,21 +62,25 @@ def merge_chunks(extractions: list[ChunkExtraction]) -> MergedFacts:
     merged.law = _vote_text([item.law for item in extractions if item.law != "не определено"])
     merged.duration_text = _first_longest([item.duration_text for item in extractions])
 
+    # Пустышки отсеиваются здесь: дальше по коду «нет значения» — это None,
+    # а сентинелы нужны были только для схемы провайдера.
     merged.price, price_conflict = _merge_money(
-        [item.price for item in extractions], "цену контракта"
+        _non_empty(item.price for item in extractions), "цену контракта"
     )
     merged.contract_security, security_conflict = _merge_money(
-        [item.contract_security for item in extractions], "обеспечение исполнения контракта"
+        _non_empty(item.contract_security for item in extractions),
+        "обеспечение исполнения контракта",
     )
 
     merged.application_deadline, deadline_conflict = _merge_date(
-        [item.application_deadline for item in extractions], "дату окончания подачи заявок"
+        _non_empty(item.application_deadline for item in extractions),
+        "дату окончания подачи заявок",
     )
     merged.contract_start, start_conflict = _merge_date(
-        [item.contract_start for item in extractions], "дату начала исполнения"
+        _non_empty(item.contract_start for item in extractions), "дату начала исполнения"
     )
     merged.contract_end, end_conflict = _merge_date(
-        [item.contract_end for item in extractions], "дату окончания исполнения"
+        _non_empty(item.contract_end for item in extractions), "дату окончания исполнения"
     )
 
     merged.stages = _dedupe(
@@ -104,7 +108,12 @@ def merge_chunks(extractions: list[ChunkExtraction]) -> MergedFacts:
     return merged
 
 
-def _vote_text(values: list[str | None]) -> str | None:
+def _non_empty(values) -> list:  # noqa: ANN001 — принимает генератор любых Raw*-моделей
+    """Оставляет только заполненные значения."""
+    return [value for value in values if not value.is_empty]
+
+
+def _vote_text(values: list[str]) -> str | None:
     """Самое частое непустое значение; при равенстве — самое подробное."""
     candidates = [value.strip() for value in values if value and value.strip()]
     if not candidates:
@@ -120,13 +129,12 @@ def _first_longest(values: list[str | None]) -> str | None:
     return max(candidates, key=len) if candidates else None
 
 
-def _merge_money(values: list[RawMoney | None], label: str) -> tuple[RawMoney | None, str | None]:
+def _merge_money(values: list[RawMoney], label: str) -> tuple[RawMoney | None, str | None]:
     """Выбирает сумму и сообщает, если фрагменты назвали разные."""
-    candidates = [value for value in values if value and value.amount is not None]
+    candidates = [value for value in values if value.amount > 0]
     if not candidates:
         # Сумма могла прийти без числа, но с формулировкой — это лучше, чем ничего.
-        fallback = next((value for value in values if value is not None), None)
-        return fallback, None
+        return (values[0] if values else None), None
 
     counter = Counter(candidate.amount for candidate in candidates)
     winner_amount = counter.most_common(1)[0][0]
@@ -144,12 +152,12 @@ def _merge_money(values: list[RawMoney | None], label: str) -> tuple[RawMoney | 
     return winner, conflict
 
 
-def _merge_date(values: list[RawDate | None], label: str) -> tuple[RawDate | None, str | None]:
-    candidates = [value for value in values if value and (value.iso_date or value.raw_text)]
-    if not candidates:
+def _merge_date(values: list[RawDate], label: str) -> tuple[RawDate | None, str | None]:
+    if not values:
         return None, None
 
-    dated = [value for value in candidates if value.iso_date]
+    candidates = values
+    dated = [value for value in candidates if value.iso_date.strip()]
     if not dated:
         return candidates[0], None
 

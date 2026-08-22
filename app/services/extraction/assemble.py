@@ -53,7 +53,7 @@ class _EvidenceChecker:
         self.page_corrections = 0
 
     def convert(self, raw: RawEvidence | None) -> Evidence | None:
-        if raw is None or not raw.quote.strip():
+        if raw is None or raw.is_empty:
             return None
 
         self.total += 1
@@ -186,12 +186,12 @@ def _money(
     if raw is None:
         return None
 
-    amount = _to_decimal(raw.amount)
+    amount = _to_decimal(raw.amount if raw.amount > 0 else None)
     return MoneyValue(
         amount=amount,
         currency=(raw.currency or "RUB").upper(),
-        vat=raw.vat or "не указано",
-        raw_text=raw.raw_text,
+        vat=raw.vat,
+        raw_text=raw.raw_text or None,
         evidence=checker.convert(raw.evidence),
         confirmed_by_rules=_confirmed(amount, rules),
     )
@@ -218,14 +218,16 @@ def _date(raw: RawDate | None, checker: _EvidenceChecker) -> DateValue | None:
         return None
     return DateValue(
         date=parse_iso_date(raw.iso_date) or parse_iso_date(raw.raw_text),
-        raw_text=raw.raw_text,
+        raw_text=raw.raw_text or None,
         evidence=checker.convert(raw.evidence),
     )
 
 
 def _stage(raw: RawStage, checker: _EvidenceChecker) -> Stage:
     return Stage(
-        name=raw.name, deadline_text=raw.deadline_text, evidence=checker.convert(raw.evidence)
+        name=raw.name,
+        deadline_text=raw.deadline_text or None,
+        evidence=checker.convert(raw.evidence),
     )
 
 
@@ -243,8 +245,8 @@ def _penalty(raw: RawPenalty, checker: _EvidenceChecker) -> Penalty:
         kind=raw.kind,
         party=raw.party,
         trigger=raw.trigger,
-        calculation=raw.calculation,
-        amount_text=raw.amount_text,
+        calculation=raw.calculation or None,
+        amount_text=raw.amount_text or None,
         evidence=checker.convert(raw.evidence),
     )
 
