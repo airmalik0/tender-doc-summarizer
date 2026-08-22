@@ -144,16 +144,46 @@ def _vat_hint(pages: list[tuple[int, str]]) -> str:
     return "не указано"
 
 
+# Ярлыки соседних строк таблицы реквизитов: на них значение заканчивается.
+_NEXT_LABEL_MARKERS = (
+    "код позиции", "окпд", "место выполнения", "место поставки", "источник финансирования",
+    "инн", "кпп", "контактное лицо", "основание проведения", "способ определения",
+    "способ закупки", "наименование заказчика", "место нахождения", "адрес", "объект закупки",
+    "начальная (максимальная)", "дата ", "срок ",
+)
+
+
 def _anchored_value(pages: list[tuple[int, str]], anchors: tuple[str, ...]) -> str | None:
-    """Значение, стоящее сразу после ярлыка в таблице реквизитов."""
+    """Значение, стоящее сразу после ярлыка в таблице реквизитов.
+
+    Границы ячеек в извлечённом тексте нет, поэтому значение обрезается по
+    ярлыку следующей строки таблицы — иначе в «предмет закупки» утекают
+    и ОКПД2, и адрес, и всё, что стоит ниже.
+    """
     for _, text in pages:
         lowered = text.lower()
         for anchor in anchors:
             position = lowered.find(anchor)
             if position == -1:
                 continue
-            tail = text[position + len(anchor) : position + len(anchor) + 220]
+
+            start = position + len(anchor)
+            tail = text[start : start + 260]
+            tail_lowered = tail.lower()
+            cuts = [
+                index
+                for index in (tail_lowered.find(marker) for marker in _NEXT_LABEL_MARKERS)
+                if index > 10
+            ]
+            if cuts:
+                tail = tail[: min(cuts)]
+
             value = " ".join(tail.strip(" :\n\t").split())
+            # «Сведения о заказчике → Наименование → ГБУЗ ...»: ярлык вложенной
+            # строки таблицы прилипает к началу значения.
+            for prefix in ("Наименование ", "наименование "):
+                if value.startswith(prefix):
+                    value = value[len(prefix) :]
             if len(value) > 12:
                 return value[:200]
     return None
