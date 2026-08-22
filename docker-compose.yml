@@ -15,7 +15,10 @@ services:
     image: tender-doc-summarizer:latest
     container_name: tender-summarizer
     ports:
-      - "${PORT:-8000}:8000"
+      # Привязка к петлевому интерфейсу: сервис не спрашивает пароля, и
+      # публиковать его на всю локальную сеть незачем. Нужен доступ снаружи —
+      # поменяйте на "${PORT:-8000}:8000".
+      - "127.0.0.1:${PORT:-8000}:8000"
     environment:
       LLM_PROVIDER: "${LLM_PROVIDER:-auto}"
 
@@ -32,11 +35,17 @@ services:
       OCR_ENABLED: "${OCR_ENABLED:-true}"
       OCR_LANG: "${OCR_LANG:-rus+eng}"
       OCR_DPI: "${OCR_DPI:-220}"
+      OCR_MIN_CHARS_PER_PAGE: "${OCR_MIN_CHARS_PER_PAGE:-120}"
 
       MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
       MAX_PAGES: "${MAX_PAGES:-400}"
+      MAX_DOCUMENT_CHARS: "${MAX_DOCUMENT_CHARS:-1500000}"
+      MAX_RENDER_PIXELS: "${MAX_RENDER_PIXELS:-40000000}"
       CHUNK_CHARS: "${CHUNK_CHARS:-14000}"
+      CHUNK_OVERLAP_CHARS: "${CHUNK_OVERLAP_CHARS:-800}"
       MAX_CHUNKS: "${MAX_CHUNKS:-12}"
+      LLM_TIMEOUT_S: "${LLM_TIMEOUT_S:-180}"
+      LLM_MAX_RETRIES: "${LLM_MAX_RETRIES:-2}"
 
       CACHE_ENABLED: "${CACHE_ENABLED:-true}"
       CACHE_DIR: "/app/data/cache"
@@ -45,6 +54,11 @@ services:
       # Кэш разборов переживает пересоздание контейнера: повторная загрузка
       # того же файла не стоит ни секунды, ни токена.
       - tender-cache:/app/data/cache
+    # Предел памяти — последняя линия обороны. Разбор PDF идёт внутри pdfium,
+    # и специально собранный документ успевает раздуть его память до того, как
+    # приложение вообще получит управление. Ограничение превращает такую
+    # загрузку в перезапуск контейнера вместо съеденной памяти хоста.
+    mem_limit: 4g
     restart: unless-stopped
 
 volumes:

@@ -51,3 +51,28 @@ def test_soft_hyphens_are_removed() -> None:
 
 def test_repeated_blank_lines_collapse() -> None:
     assert normalize_text("а\n\n\n\n\nб") == "а\n\nб"
+
+
+def test_text_volume_limit_is_enforced(roof_pdf: bytes) -> None:
+    """Предел на извлечённый текст, а не на размер файла.
+
+    Страница с потоком, который распаковывается в десятки миллионов символов,
+    весит килобайты и проходит любой лимит загрузки. Число символов известно
+    до материализации строки, поэтому проверка стоит именно там.
+    """
+    with pytest.raises(DocumentTooLongError):
+        extract_document(
+            roof_pdf, Settings(max_document_chars=5_000, ocr_enabled=False, _env_file=None)
+        )
+
+
+def test_render_scale_is_clamped_by_area() -> None:
+    """Страница с огромным MediaBox иначе даёт битмап на сотни мегабайт."""
+    from app.services.pdf.extractor import _safe_scale
+
+    class _HugePage:
+        def get_size(self) -> tuple[float, float]:
+            return 14400.0, 14400.0
+
+    scale = _safe_scale(_HugePage(), dpi=600, max_pixels=40_000_000)
+    assert (14400 * scale) * (14400 * scale) <= 40_000_000 * 1.01

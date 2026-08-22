@@ -132,7 +132,7 @@
   <div class="panel" id="uploader">
     <div id="drop">
       <b>Перетащите PDF сюда</b>
-      <span>или нажмите, чтобы выбрать файл — до <span id="limit">25</span> МБ</span>
+      <span>или нажмите, чтобы выбрать файл — до <span id="limit">…</span> МБ</span>
       <input type="file" id="file" accept="application/pdf,.pdf" class="hidden">
     </div>
     <div class="samples">
@@ -307,7 +307,7 @@ function busy(on, text) {
     timer = setInterval(() => {
       const seconds = Math.round((Date.now() - started) / 1000);
       $("elapsed").textContent = seconds + " с"
-        + (seconds > 12 ? " · документ обрабатывается моделью, обычно это 30–90 секунд" : "")
+        + (seconds > 12 ? " · документ обрабатывается моделью, обычно это 45–90 секунд" : "")
         + (seconds > 100 ? " · повторный запрос того же файла вернётся из кэша мгновенно" : "");
     }, 1000);
   }
@@ -358,6 +358,8 @@ drop.addEventListener("drop", (event) => upload(event.dataTransfer.files[0]));
 (async () => {
   try {
     const health = await (await fetch("/api/v1/health")).json();
+    // Лимит приходит из конфигурации сервиса, а не зашит в разметку.
+    if (health.max_upload_mb) $("limit").textContent = health.max_upload_mb;
     const badges = [
       `Провайдер: ${health.provider}${health.model ? " · " + health.model : ""}`,
       `OCR: ${health.ocr_available ? "доступен" : "недоступен"}`,

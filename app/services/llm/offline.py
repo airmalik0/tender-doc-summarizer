@@ -29,6 +29,10 @@ from app.services.extraction import heuristics
 from app.services.llm.base import LLMProvider, LLMResult, LLMUsage
 
 PAGE_MARKER_RE = re.compile(r"\[СТРАНИЦА\s+(\d+)\]")
+# Обвязка промпта и чанкинга не является частью документа и не должна попадать
+# ни в факты, ни в цитаты: закрывающий тег уносила последняя страница, а пометку
+# о продолжении — первая страница каждого фрагмента после первого.
+PROMPT_ARTEFACTS_RE = re.compile(r"</документ>|\(продолжение предыдущего фрагмента\)")
 
 _SUBJECT_ANCHORS = ("объект закупки", "предмет закупки", "наименование объекта закупки")
 _CUSTOMER_ANCHORS = ("наименование заказчика", "заказчик:", "сведения о заказчике")
@@ -106,12 +110,13 @@ def split_pages(prompt_text: str) -> list[tuple[int, str]]:
     """Восстанавливает разбиение по страницам из маркеров в промпте."""
     matches = list(PAGE_MARKER_RE.finditer(prompt_text))
     if not matches:
-        return [(1, prompt_text)]
+        return [(1, PROMPT_ARTEFACTS_RE.sub("", prompt_text).strip())]
 
     pages: list[tuple[int, str]] = []
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(prompt_text)
-        pages.append((int(match.group(1)), prompt_text[match.end() : end].strip()))
+        body = PROMPT_ARTEFACTS_RE.sub("", prompt_text[match.end() : end]).strip()
+        pages.append((int(match.group(1)), body))
     return pages
 
 
@@ -156,7 +161,7 @@ def _money(hit: heuristics.MoneyHit | None, vat_hint: str) -> dict[str, Any]:
         "currency": "RUB",
         "vat": vat_hint,
         "raw_text": hit.raw,
-        "evidence": {"page": hit.page, "quote": hit.context[:300]},
+        "evidence": {"page": hit.page, "quote": _cut(hit.context, 300)},
     }
 
 
@@ -234,7 +239,7 @@ def _anchored_value(pages: list[tuple[int, str]], anchors: tuple[str, ...]) -> s
                 if value.startswith(prefix):
                     value = value[len(prefix) :]
             if len(value) > 12:
-                return value[:200]
+                return _cut(value, 200)
     return None
 
 
@@ -281,10 +286,10 @@ def _requirements(pages: list[tuple[int, str]]) -> list[dict[str, Any]]:
             seen.add(key)
             requirements.append(
                 {
-                    "text": sentence[:250],
+                    "text": _cut(sentence, 250),
                     "category": _categorize(lowered),
                     "mandatory": not any(word in lowered for word in _OPTIONAL_MARKERS),
-                    "evidence": {"page": page_number, "quote": sentence[:300]},
+                    "evidence": {"page": page_number, "quote": _cut(sentence, 300)},
                 }
             )
     return requirements[:15]
@@ -312,10 +317,10 @@ def _penalties(hits: list[heuristics.PenaltyHit]) -> list[dict[str, Any]]:
             {
                 "kind": hit.kind,
                 "party": _party(lowered),
-                "trigger": hit.sentence[:250],
+                "trigger": _cut(hit.sentence, 250),
                 "calculation": _calculation(hit.sentence) or "",
                 "amount_text": _amount_text(hit.sentence) or "",
-                "evidence": {"page": hit.page, "quote": hit.sentence[:300]},
+                "evidence": {"page": hit.page, "quote": _cut(hit.sentence, 300)},
             }
         )
     return penalties[:12]
@@ -349,6 +354,16 @@ def _amount_text(sentence: str) -> str | None:
     if percent:
         return " ".join(percent.group(0).split())
     return None
+
+
+def _cut(text: str, limit: int) -> str:
+    """Обрезает по границе слова: «…балансовой стоим» выглядит как брак."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    space = head.rfind(" ")
+    return (head[:space] if space > limit // 2 else head).rstrip(" ,;:-") + "…"
 
 
 def _sentences(text: str) -> list[str]:

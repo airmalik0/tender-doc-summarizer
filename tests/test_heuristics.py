@@ -119,3 +119,89 @@ def test_penalty_sentences_are_classified() -> None:
 )
 def test_parse_iso_date(raw: str, expected: date | None) -> None:
     assert heuristics.parse_iso_date(raw) == expected
+
+
+def test_amounts_with_dot_separators() -> None:
+    """«12.480.350,00» — редкое, но встречающееся написание разрядов.
+
+    Раньше регулярное выражение цеплялось за хвост числа и возвращало 350.00,
+    промахиваясь на пять порядков.
+    """
+    hits = heuristics.find_money([(1, "цена контракта составляет 12.480.350,00 рублей")])
+    assert [hit.amount for hit in hits] == [Decimal("12480350.00")]
+
+
+def test_penalty_marker_requires_word_boundary() -> None:
+    """«степень» и «компенсационный» содержат «пен», но санкциями не являются."""
+    text = (
+        "Гарантийный срок на конструкции устанавливается в зависимости от степени износа "
+        "и подтверждается взносом в компенсационный фонд саморегулируемой организации."
+    )
+    assert heuristics.find_penalties([(1, text)]) == []
+
+
+def test_fine_is_not_classified_as_penya() -> None:
+    assert (
+        heuristics.classify_penalty(
+            "подрядчик уплачивает штраф, размер которого зависит от степени тяжести нарушения"
+        )
+        == "штраф"
+    )
+
+
+def test_penya_wins_when_formula_present() -> None:
+    assert (
+        heuristics.classify_penalty(
+            "начисляется в размере одной трёхсотой ключевой ставки за каждый день просрочки"
+        )
+        == "пеня"
+    )
+
+
+def test_nearest_date_wins_over_format() -> None:
+    """Раньше дата цифрами побеждала более близкую к якорю дату словами."""
+    text = (
+        "Дата и время окончания подачи заявок: 15 сентября 2026 г., 09:00. "
+        "Дата подачи ценовых предложений: 18.09.2026."
+    )
+    findings = heuristics.analyze([(1, text)])
+    assert findings.application_deadline is not None
+    assert findings.application_deadline.value == date(2026, 9, 15)
+
+
+def test_law_144_is_not_law_44() -> None:
+    assert heuristics.detect_law("закупка по Федеральному закону № 144-ФЗ") != "44-ФЗ"
+
+
+def test_procurement_number_for_223fz() -> None:
+    """По 223-ФЗ номер закупки одиннадцатизначный, а не девятнадцатизначный."""
+    assert (
+        heuristics.detect_procurement_number("Извещение № 32211456789 от 01.09.2026")
+        == "32211456789"
+    )
+
+
+def test_security_anchor_knows_about_dogovor() -> None:
+    """По 223-ФЗ заключают договор, а не контракт."""
+    text = "Размер обеспечения исполнения договора: 199 000,00 рублей."
+    findings = heuristics.analyze([(1, text)])
+    assert findings.contract_security is not None
+    assert findings.contract_security.amount == Decimal("199000.00")
+
+
+def test_anchor_survives_line_break_inside_label() -> None:
+    """В таблице ярлык переносится на другую строку и подстрокой не находится."""
+    text = "Размер обеспечения исполнения\nконтракта 624 017,50 рубля"
+    findings = heuristics.analyze([(1, text)])
+    assert findings.contract_security is not None
+    assert findings.contract_security.amount == Decimal("624017.50")
+
+
+def test_several_prices_near_anchor_are_all_collected() -> None:
+    """Документ может называть цену дважды и по-разному — это надо заметить."""
+    pages = [
+        (1, "Начальная (максимальная) цена контракта составляет 5 460 000,00 рублей."),
+        (2, "Начальная (максимальная) цена контракта составляет 5 600 000,00 рублей."),
+    ]
+    findings = heuristics.analyze(pages)
+    assert findings.price_candidates == {Decimal("5460000.00"), Decimal("5600000.00")}

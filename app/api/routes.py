@@ -11,11 +11,12 @@ from app.api.deps import get_pipeline, get_provider, get_settings
 from app.core.config import Settings
 from app.core.exceptions import (
     FileTooLargeError,
+    NotFoundError,
     PdfParseError,
     UnsupportedFileTypeError,
 )
 from app.core.logging import get_logger
-from app.models.summary import HealthResponse, TenderSummary
+from app.models.summary import ErrorResponse, HealthResponse, TenderSummary
 from app.services.extraction.pipeline import SummarizationPipeline
 from app.services.llm.base import LLMProvider
 from app.services.pdf.ocr import ocr_available
@@ -35,6 +36,17 @@ class SampleFile(BaseModel):
     size_kb: int
     title: str = Field(description="Человекочитаемое описание")
 
+
+# Ошибки одинаковы у обоих разборов и описываются в схеме, чтобы Swagger
+# показывал не только счастливый путь.
+ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
+    404: {"model": ErrorResponse, "description": "Документ не найден"},
+    413: {"model": ErrorResponse, "description": "Файл или документ больше лимита"},
+    415: {"model": ErrorResponse, "description": "Неподдерживаемый тип файла"},
+    422: {"model": ErrorResponse, "description": "PDF не разбирается или пуст"},
+    502: {"model": ErrorResponse, "description": "Провайдер недоступен или ответил ошибкой"},
+    503: {"model": ErrorResponse, "description": "Провайдер не настроен"},
+}
 
 SAMPLE_TITLES = {
     "tender-44fz-remont-krovli.pdf": (
@@ -63,6 +75,7 @@ async def health(
         provider=provider.name,
         model=provider.model,
         ocr_available=ocr_available(),
+        max_upload_mb=settings.max_upload_mb,
         configured_providers=settings.configured_providers(),
     )
 
@@ -87,6 +100,7 @@ async def list_samples() -> list[SampleFile]:
     response_model=TenderSummary,
     summary="Разобрать тендерную документацию",
     response_model_exclude_none=False,
+    responses=ERROR_RESPONSES,
 )
 async def summarize(
     file: UploadFile = File(description="PDF с тендерной документацией"),
@@ -111,6 +125,7 @@ async def summarize(
     "/summarize/sample",
     response_model=TenderSummary,
     summary="Разобрать демонстрационный документ",
+    responses=ERROR_RESPONSES,
 )
 async def summarize_sample(
     name: str = Query(description="Имя файла из /samples"),
@@ -124,7 +139,7 @@ async def summarize_sample(
     path = SAMPLES_DIR / safe_name
 
     if not path.exists() or path.suffix.lower() != ".pdf":
-        raise UnsupportedFileTypeError(
+        raise NotFoundError(
             f"Демонстрационный документ «{safe_name}» не найден.",
             details={"available": [item.name for item in sorted(SAMPLES_DIR.glob("*.pdf"))]},
         )
@@ -135,8 +150,10 @@ async def summarize_sample(
 async def _read_upload(file: UploadFile, limit: int) -> bytes:
     """Читает загрузку кусками, останавливаясь на превышении лимита.
 
-    Читать целиком и потом смотреть длину нельзя: так лимит уже не защищает
-    от файла, который не поместится в память.
+    Тело запроса к этому моменту уже принято: FastAPI разбирает multipart до
+    вызова обработчика, и крупная часть уходит во временный файл на диске.
+    Поэтому здесь ограничивается только то, что попадёт в память и в разбор,
+    а раннее отсечение по Content-Length живёт в middleware приложения.
     """
     buffer = bytearray()
     while chunk := await file.read(READ_CHUNK):

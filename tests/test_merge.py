@@ -109,3 +109,30 @@ def _requirement(text: str) -> dict:
         "mandatory": True,
         "evidence": evidence(1, text),
     }
+
+
+def test_different_requirements_with_same_opening_are_kept() -> None:
+    """Канцелярские зачины совпадают у совершенно разных требований.
+
+    Сравнение по первым сорока символам склеивало две разные лицензии МЧС
+    в одну, и второе требование молча пропадало из ответа.
+    """
+    first = "Наличие действующей лицензии МЧС России на монтаж и техническое обслуживание "
+    second = "Наличие действующей лицензии МЧС России на деятельность по тушению пожаров "
+    facts = merge_chunks(
+        [_chunk(requirements=[_requirement(first)]), _chunk(requirements=[_requirement(second)])]
+    )
+    assert len(facts.requirements) == 2
+
+
+def test_truncated_requirement_still_collapses() -> None:
+    """Обрезанное на границе фрагмента требование — по-прежнему тот же факт."""
+    full = "Наличие действующей лицензии МЧС России на монтаж и техническое обслуживание систем"
+    facts = merge_chunks(
+        [
+            _chunk(requirements=[_requirement(full[:52])]),
+            _chunk(requirements=[_requirement(full)]),
+        ]
+    )
+    assert len(facts.requirements) == 1
+    assert facts.requirements[0].text == full

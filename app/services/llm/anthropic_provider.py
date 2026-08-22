@@ -22,6 +22,7 @@ class AnthropicProvider(LLMProvider):
     name = "anthropic"
 
     def __init__(self, settings: Settings) -> None:
+        import anthropic as anthropic_sdk
         from anthropic import AsyncAnthropic
 
         if not settings.anthropic_api_key:
@@ -31,7 +32,12 @@ class AnthropicProvider(LLMProvider):
         self._effort = settings.anthropic_effort
         self._client = AsyncAnthropic(
             api_key=settings.anthropic_api_key.get_secret_value(),
-            timeout=settings.llm_timeout_s,
+            # Отдельный короткий таймаут на установку соединения. С одним общим
+            # таймаутом недоступный хост держал бы запрос все 180 секунд, и с
+            # учётом повторов первая ошибка пришла бы через девять минут.
+            timeout=anthropic_sdk.Timeout(
+                settings.llm_timeout_s, connect=10.0, read=settings.llm_timeout_s, write=30.0
+            ),
             max_retries=settings.llm_max_retries,
         )
 

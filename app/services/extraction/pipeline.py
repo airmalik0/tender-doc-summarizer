@@ -45,6 +45,15 @@ from app.services.pdf.extractor import extract_document
 
 logger = get_logger(__name__)
 
+
+def _describe(error: BaseException) -> str:
+    """Человекочитаемая причина отказа вместе с деталями провайдера."""
+    message = getattr(error, "message", None) or str(error)
+    details = getattr(error, "details", None)
+    reason = details.get("reason") if isinstance(details, dict) else None
+    return f"{message} {reason}".strip() if reason else message
+
+
 # Больше четырёх параллельных запросов к провайдеру смысла не имеют:
 # упираемся в rate limit, а не в скорость.
 MAX_PARALLEL_CHUNKS = 4
@@ -67,6 +76,9 @@ class SummarizationPipeline:
             cached = self._cache.get(cache_key)
             if cached is not None:
                 logger.info("Разбор %s взят из кэша", filename)
+                # Кэш ищется по содержимому: тот же документ мог приехать под
+                # другим именем, и отдавать чужое имя файла в ответе нечестно.
+                cached.document.filename = filename
                 cached.meta.cached = True
                 cached.meta.total_ms = int((time.perf_counter() - started) * 1000)
                 return cached
@@ -180,19 +192,24 @@ class SummarizationPipeline:
         extractions: list[ChunkExtraction] = []
         usage = LLMUsage()
         warnings: list[str] = []
+        failures: list[str] = []
         calls = 0
 
         for chunk, outcome in zip(chunks, outcomes, strict=True):
             if isinstance(outcome, BaseException):
+                # Причину забираем вместе с деталями провайдера: без них и в
+                # логе, и в ответе остаётся бессодержательное «не получилось».
+                reason = _describe(outcome)
+                failures.append(reason)
                 logger.warning(
                     "Фрагмент %d (стр. %s) не разобран: %s",
                     chunk.index + 1,
                     chunk.pages_label,
-                    outcome,
+                    reason,
                 )
                 warnings.append(
                     f"Фрагмент {chunk.index + 1} (страницы {chunk.pages_label}) не разобран: "
-                    f"{getattr(outcome, 'message', str(outcome))}"
+                    f"{reason}"
                 )
                 continue
             extraction, chunk_usage = outcome
@@ -201,10 +218,21 @@ class SummarizationPipeline:
             calls += 1
 
         if chunks and not extractions:
-            # Уцелевших нет — отдавать пустой разбор нечестно.
+            # Уцелевших нет — отдавать пустой разбор нечестно. Причину первого
+            # отказа обязательно прокидываем наружу: без неё клиент видит голое
+            # «не получилось» и не может понять, дело в ключе, в сети или в
+            # исчерпанном балансе.
             raise LLMError(
-                "Не удалось разобрать ни один фрагмент документа.",
-                details={"chunks": len(chunks), "provider": self._provider.name},
+                (
+                    f"Не удалось разобрать ни один фрагмент документа. {failures[0]}"
+                    if failures
+                    else "Не удалось разобрать ни один фрагмент документа."
+                ),
+                details={
+                    "chunks": len(chunks),
+                    "provider": self._provider.name,
+                    "reason": failures[0] if failures else None,
+                },
             )
 
         return extractions, usage, calls, warnings

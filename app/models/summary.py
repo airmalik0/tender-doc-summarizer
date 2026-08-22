@@ -188,6 +188,7 @@ class HealthResponse(BaseModel):
     provider: str = Field(description="Провайдер, который будет использован при разборе")
     model: str | None = None
     ocr_available: bool
+    max_upload_mb: int = Field(description="Максимальный размер загружаемого файла")
     configured_providers: list[str] = Field(
         default_factory=list, description="Провайдеры, для которых задан ключ"
     )

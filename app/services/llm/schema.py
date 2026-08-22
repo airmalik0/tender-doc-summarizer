@@ -70,9 +70,9 @@ def _tighten(node: Any) -> Any:
     if result.get("type") == "object" or "properties" in result:
         properties = result.get("properties", {})
         result["additionalProperties"] = False
-        # Необязательные поля уже описаны как «тип или null», поэтому требование
-        # присутствия ключа ничего не ломает: модель обязана явно вернуть null,
-        # а не молча пропустить поле.
+        # Отсутствие данных в схеме выражается пустым значением, а не null
+        # (см. app/models/extraction.py), поэтому обязательность всех ключей
+        # ничего не ломает: модель всегда может вернуть пустую строку или ноль.
         result["required"] = list(properties.keys())
 
     return result

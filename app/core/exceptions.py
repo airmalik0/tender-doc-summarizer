@@ -20,6 +20,11 @@ class AppError(Exception):
         self.details = details or {}
 
 
+class NotFoundError(AppError):
+    status_code = 404
+    code = "not_found"
+
+
 class UnsupportedFileTypeError(AppError):
     status_code = 415
     code = "unsupported_file_type"
@@ -43,11 +48,6 @@ class EmptyDocumentError(AppError):
 class DocumentTooLongError(AppError):
     status_code = 413
     code = "document_too_long"
-
-
-class OcrUnavailableError(AppError):
-    status_code = 503
-    code = "ocr_unavailable"
 
 
 class ProviderNotConfiguredError(AppError):

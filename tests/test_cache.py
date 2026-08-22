@@ -54,3 +54,14 @@ def test_corrupted_entry_is_dropped(tmp_path) -> None:
 
     assert cache.get(key) is None
     assert not (tmp_path / f"{key}.json").exists()
+
+
+def test_model_name_cannot_escape_cache_directory(tmp_path) -> None:
+    """Имя модели приходит из конфигурации и попадает в имя файла."""
+    cache = SummaryCache(tmp_path, enabled=True)
+    key = cache.key("a" * 64, "anthropic", "../../../../tmp/escape")
+    cache.put(key, _summary())
+
+    assert "/" not in key
+    assert cache.get(key) is not None
+    assert list(tmp_path.glob("*.json")), "запись должна остаться внутри каталога кэша"

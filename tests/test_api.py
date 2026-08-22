@@ -138,8 +138,18 @@ def test_sample_path_traversal_is_blocked(client: TestClient) -> None:
     """Имя приходит из запроса: без обрезки до базовой части утечёт .env."""
     response = client.post("/api/v1/summarize/sample", params={"name": "../../.env"})
 
-    assert response.status_code == 415
+    assert response.status_code == 404
+    assert response.json()["code"] == "not_found"
     assert "не найден" in response.json()["message"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["../../etc/passwd", "/etc/passwd", "..%2f..%2fREADME.md", "../app/core/config.py", "."],
+)
+def test_traversal_variants_are_blocked(client: TestClient, name: str) -> None:
+    response = client.post("/api/v1/summarize/sample", params={"name": name})
+    assert response.status_code == 404
 
 
 def test_unknown_route_returns_json_error(client: TestClient) -> None:
@@ -151,3 +161,39 @@ def test_unknown_route_returns_json_error(client: TestClient) -> None:
 def test_error_payload_carries_request_id(client: TestClient) -> None:
     response = client.post("/api/v1/summarize/sample", params={"name": "нет.pdf"})
     assert response.json()["request_id"]
+
+
+def test_request_id_header_matches_body(client: TestClient) -> None:
+    """Заголовок раньше всегда отдавал прочерк: контекст сбрасывался до чтения."""
+    response = client.post("/api/v1/summarize/sample", params={"name": "нет.pdf"})
+
+    assert response.headers["X-Request-Id"] != "-"
+    assert response.headers["X-Request-Id"] == response.json()["request_id"]
+
+
+def test_health_reports_upload_limit(client: TestClient) -> None:
+    """Интерфейс показывает лимит пользователю и не должен его хардкодить."""
+    assert client.get("/api/v1/health").json()["max_upload_mb"] > 0
+
+
+def test_openapi_documents_error_responses(client: TestClient) -> None:
+    responses = client.get("/openapi.json").json()["paths"]["/api/v1/summarize"]["post"][
+        "responses"
+    ]
+    assert {"413", "415", "422", "502"} <= set(responses)
+
+
+def test_oversized_body_is_rejected_before_parsing(client: TestClient, monkeypatch) -> None:
+    """Отказ по Content-Length приходит до разбора multipart."""
+    monkeypatch.setenv("MAX_UPLOAD_MB", "1")
+    get_settings.cache_clear()
+
+    with TestClient(create_app()) as small_client:
+        response = small_client.post(
+            "/api/v1/summarize",
+            content=b"x" * (3 * 1024 * 1024),
+            headers={"Content-Type": "multipart/form-data; boundary=x"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["code"] == "file_too_large"

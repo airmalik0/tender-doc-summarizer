@@ -21,7 +21,14 @@ from decimal import Decimal, InvalidOperation
 # Разделителем разрядов в документах бывает и обычный пробел, и неразрывный,
 # и узкий неразрывный — все три встречаются в выгрузках из Word.
 _THIN_SPACES = "    "
-_NUMBER = rf"\d{{1,3}}(?:[ {_THIN_SPACES}]\d{{3}})+(?:[.,]\d{{1,2}})?|\d+(?:[.,]\d{{1,2}})?"
+# Три написания подряд: через точки («12.480.350,00» — только вместе с
+# копейками, иначе «1.234» неотличимо от дробного числа), через пробелы любой
+# ширины и просто числом.
+_NUMBER = (
+    rf"\d{{1,3}}(?:\.\d{{3}})+,\d{{1,2}}"
+    rf"|\d{{1,3}}(?:[ {_THIN_SPACES}]\d{{3}})+(?:[.,]\d{{1,2}})?"
+    rf"|\d+(?:[.,]\d{{1,2}})?"
+)
 
 # «12 480 350,00 (двенадцать миллионов ...) рублей 00 копеек» — скобочная
 # расшифровка стоит между числом и словом «рублей», поэтому она пропускается.
@@ -56,6 +63,9 @@ DATE_WORDS_RE = re.compile(
 # Формулировки, рядом с которыми в документе стоит НМЦК.
 PRICE_ANCHORS = (
     "начальная (максимальная) цена контракта",
+    "начальная (максимальная) цена договора",
+    "начальная (максимальная) цена",
+    "цена договора составляет",
     "начальная(максимальная) цена контракта",
     "начальная максимальная цена контракта",
     "начальная (максимальная) цена",
@@ -65,7 +75,10 @@ PRICE_ANCHORS = (
 )
 SECURITY_ANCHORS = (
     "размер обеспечения исполнения контракта",
+    "размер обеспечения исполнения договора",
     "обеспечение исполнения контракта",
+    "обеспечение исполнения договора",
+    "обеспечения исполнения договора",
     "обеспечения исполнения контракта",
     "размер обеспечения исполнения",
 )
@@ -76,15 +89,33 @@ DEADLINE_ANCHORS = (
     "дата и время окончания подачи",
 )
 
-LAW_44_RE = re.compile(r"44[\s-]*фз|№\s*44-фз|федеральн\w+ закон\w*[^.]{0,40}44", re.IGNORECASE)
+LAW_44_RE = re.compile(
+    r"(?<!\d)44[\s-]*фз|№\s*(?<!\d)44-фз|федеральн\w+ закон\w*[^.]{0,40}(?<!\d)44", re.IGNORECASE
+)
 LAW_223_RE = re.compile(r"223[\s-]*фз|№\s*223-фз", re.IGNORECASE)
-PROCUREMENT_NUMBER_RE = re.compile(r"\b\d{19}\b")
+# 19 цифр — извещение по 44-ФЗ, 11 цифр — по 223-ФЗ.
+PROCUREMENT_NUMBER_RE = re.compile(r"\b(?:\d{19}|\d{11})\b")
 
-PENALTY_MARKERS = ("пен", "штраф", "неустойк")
+# Границы слова обязательны: без них «пен» находится в «степени», и предложение
+# про гарантийный срок превращается в меру ответственности.
+PENALTY_PENYA_RE = re.compile(r"\bпен[иеяю]", re.IGNORECASE)
+PENALTY_FINE_RE = re.compile(r"\bштраф", re.IGNORECASE)
+PENALTY_FORFEIT_RE = re.compile(r"\bнеустойк", re.IGNORECASE)
 PENALTY_FORMULA_RE = re.compile(
     r"одной\s+трёхсотой|одной\s+трехсотой|1/300|ключевой\s+ставк", re.IGNORECASE
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.;])\s+(?=[А-ЯЁ«\d])")
+
+
+def _flatten(text: str) -> str:
+    """Текст без переносов строк, символ в символ.
+
+    Ярлык в таблице сплошь и рядом разрывается переносом («Размер обеспечения
+    исполнения\nконтракта»), и поиск якоря подстрокой его не находит. Замена
+    один в один сохраняет позиции символов, поэтому найденное смещение можно
+    без пересчёта использовать в исходном тексте.
+    """
+    return text.replace("\n", " ").lower()
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +154,7 @@ class RuleFindings:
     dates: list[DateHit]
     penalties: list[PenaltyHit]
     price: MoneyHit | None
+    price_candidates: set[Decimal]
     contract_security: MoneyHit | None
     application_deadline: DateHit | None
     law: str
@@ -218,15 +250,35 @@ def find_penalties(pages: list[tuple[int, str]]) -> list[PenaltyHit]:
     for page_number, text in pages:
         for sentence in _SENTENCE_SPLIT_RE.split(text.replace("\n", " ")):
             lowered = sentence.lower()
-            if not any(marker in lowered for marker in PENALTY_MARKERS):
+            if not (
+                PENALTY_PENYA_RE.search(lowered)
+                or PENALTY_FINE_RE.search(lowered)
+                or PENALTY_FORFEIT_RE.search(lowered)
+            ):
                 continue
             if len(sentence) < 40:
                 continue
-            kind = "пеня" if "пен" in lowered or PENALTY_FORMULA_RE.search(lowered) else "штраф"
+            kind = classify_penalty(lowered)
             hits.append(
                 PenaltyHit(kind=kind, sentence=" ".join(sentence.split()), page=page_number)
             )
     return hits
+
+
+def classify_penalty(text: str) -> str:
+    """Пеня или штраф.
+
+    Штраф проверяется первым: предложение про штраф нередко упоминает и пени
+    («помимо пеней, начисляется штраф…»), а вот формула одной трёхсотой
+    ключевой ставки встречается только у пени.
+    """
+    lowered = text.lower()
+    has_penya = bool(PENALTY_PENYA_RE.search(lowered))
+    if PENALTY_FINE_RE.search(lowered) and not has_penya:
+        return "штраф"
+    if has_penya or PENALTY_FORMULA_RE.search(lowered):
+        return "пеня"
+    return "штраф"
 
 
 def _nearest_money_after(
@@ -263,7 +315,7 @@ def _find_anchored_money(
     """
     for anchor in anchors:
         for page_number, text in pages:
-            lowered = text.lower()
+            lowered = _flatten(text)
             position = lowered.find(anchor)
             while position != -1:
                 found = _nearest_money_after(text, position, page_number)
@@ -277,26 +329,64 @@ def _find_anchored_money(
 
 
 def _find_anchored_date(pages: list[tuple[int, str]], anchors: tuple[str, ...]) -> DateHit | None:
+    """Ближайшая к якорю дата, в каком бы виде она ни была записана.
+
+    Сравниваются позиции, а не форматы: раньше сначала искалось написание
+    цифрами по всему окну, и дата соседнего пункта, стоящая дальше по тексту,
+    побеждала дату словами, стоящую вплотную к якорю.
+    """
     for page_number, text in pages:
-        lowered = text.lower()
+        lowered = _flatten(text)
         for anchor in anchors:
             position = lowered.find(anchor)
             if position == -1:
                 continue
+
             window = text[position : position + 300]
-            for regex, extract in (
-                (DATE_DIGITS_RE, lambda m: (m.group("year"), m.group("month"), m.group("day"))),
-                (
-                    DATE_WORDS_RE,
-                    lambda m: (m.group("year"), _MONTHS[m.group("month").lower()], m.group("day")),
-                ),
-            ):
-                match = regex.search(window)
-                if match:
-                    value = _safe_date(*extract(match))
-                    if value:
-                        return DateHit(value=value, raw=match.group(0), page=page_number)
+            candidates: list[tuple[int, DateHit]] = []
+
+            for match in DATE_DIGITS_RE.finditer(window):
+                value = _safe_date(match.group("year"), match.group("month"), match.group("day"))
+                if value:
+                    candidates.append(
+                        (match.start(), DateHit(value=value, raw=match.group(0), page=page_number))
+                    )
+            for match in DATE_WORDS_RE.finditer(window):
+                value = _safe_date(
+                    match.group("year"), _MONTHS[match.group("month").lower()], match.group("day")
+                )
+                if value:
+                    candidates.append(
+                        (match.start(), DateHit(value=value, raw=match.group(0), page=page_number))
+                    )
+
+            if candidates:
+                return min(candidates, key=lambda item: item[0])[1]
     return None
+
+
+def collect_anchored_amounts(
+    pages: list[tuple[int, str]], anchors: tuple[str, ...], forbidden: tuple[str, ...] = ()
+) -> set[Decimal]:
+    """Все различные суммы, стоящие у якорной формулировки.
+
+    Нужно, чтобы заметить документ, в котором цена контракта названа дважды
+    и по-разному: извещение говорит одно, проект контракта — другое. Одна
+    выбранная сумма такое расхождение скрывает.
+    """
+    found: set[Decimal] = set()
+    for anchor in anchors:
+        for page_number, text in pages:
+            lowered = _flatten(text)
+            position = lowered.find(anchor)
+            while position != -1:
+                candidate = _nearest_money_after(text, position, page_number)
+                if candidate is not None:
+                    hit, money_end = candidate
+                    if not any(word in lowered[position:money_end] for word in forbidden):
+                        found.add(hit.amount)
+                position = lowered.find(anchor, position + 1)
+    return found
 
 
 def detect_law(text: str) -> str:
@@ -330,6 +420,7 @@ def analyze(pages: list[tuple[int, str]]) -> RuleFindings:
         dates=find_dates(pages),
         penalties=find_penalties(pages),
         price=_find_anchored_money(pages, PRICE_ANCHORS, forbidden=("обеспечен",)),
+        price_candidates=collect_anchored_amounts(pages, PRICE_ANCHORS, forbidden=("обеспечен",)),
         contract_security=_find_anchored_money(
             pages, SECURITY_ANCHORS, forbidden=("заявк", "гарантийн")
         ),
