@@ -97,3 +97,33 @@ async def test_offline_quotes_are_taken_from_the_document(roof_pdf: bytes, setti
 
 def test_offline_provider_cannot_synthesize() -> None:
     assert OfflineProvider().supports_synthesis is False
+
+
+def test_prompt_artefacts_do_not_leak_into_pages() -> None:
+    """Закрывающий тег промпта и пометка о перекрытии — не часть документа."""
+    prompt = "[СТРАНИЦА 1]\n(продолжение предыдущего фрагмента)\nтекст документа\n</документ>"
+    pages = split_pages(prompt)
+    assert pages == [(1, "текст документа")]
+
+
+def test_gemini_schema_has_no_additional_properties() -> None:
+    """Бекенд Google отвергает запрос со словом additionalProperties целиком."""
+    import json
+
+    from app.models.extraction import ChunkExtraction
+    from app.services.llm.gemini_provider import strip_unsupported
+    from app.services.llm.schema import to_strict_json_schema
+
+    cleaned = json.dumps(strip_unsupported(to_strict_json_schema(ChunkExtraction)))
+    assert "additionalProperties" not in cleaned
+    assert "properties" in cleaned
+
+
+def test_openai_and_anthropic_schema_keeps_additional_properties() -> None:
+    """А им это поле, наоборот, обязательно для строгого режима."""
+    import json
+
+    from app.models.extraction import ChunkExtraction
+    from app.services.llm.schema import to_strict_json_schema
+
+    assert "additionalProperties" in json.dumps(to_strict_json_schema(ChunkExtraction))

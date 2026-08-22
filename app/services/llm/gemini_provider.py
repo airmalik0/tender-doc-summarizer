@@ -1,4 +1,12 @@
-"""Провайдер Google Gemini."""
+"""Провайдер Google Gemini.
+
+Одна особенность стоит отдельного слова. Бекенд Google не знает поля
+``additionalProperties`` и отвергает весь запрос с 400 INVALID_ARGUMENT,
+если оно есть в схеме, — а его требуют строгие режимы Anthropic и OpenAI.
+Проверка структуры у Google идёт раньше проверки ключа, поэтому ошибка
+приходит на любом запросе, даже с заведомо неверным ключом. Поэтому схема
+здесь чистится перед отправкой.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +18,19 @@ from app.core.config import Settings
 from app.core.exceptions import LLMError
 from app.services.llm.base import LLMProvider, LLMResult, LLMUsage, parse_json_payload
 from app.services.llm.schema import to_strict_json_schema
+
+
+def strip_unsupported(node: object) -> object:
+    """Убирает из схемы ключи, которых не знает бекенд Google."""
+    if isinstance(node, dict):
+        return {
+            key: strip_unsupported(value)
+            for key, value in node.items()
+            if key != "additionalProperties"
+        }
+    if isinstance(node, list):
+        return [strip_unsupported(item) for item in node]
+    return node
 
 
 class GeminiProvider(LLMProvider):
@@ -47,7 +68,7 @@ class GeminiProvider(LLMProvider):
                 config={
                     "system_instruction": system,
                     "response_mime_type": "application/json",
-                    "response_schema": to_strict_json_schema(schema_model),
+                    "response_schema": strip_unsupported(to_strict_json_schema(schema_model)),
                     "max_output_tokens": max_output_tokens,
                     "http_options": {"timeout": self._timeout_ms},
                 },
@@ -71,3 +92,6 @@ class GeminiProvider(LLMProvider):
             ),
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
+
+    async def aclose(self) -> None:
+        await self._client.aio.aclose()
