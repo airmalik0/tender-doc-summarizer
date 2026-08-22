@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -177,3 +178,79 @@ async def test_metrics_are_collected(roof_pdf: bytes, settings, tmp_path) -> Non
     assert result.meta.input_tokens == 110
     assert result.meta.pdf_ms >= 0
     assert result.document.sha256 and len(result.document.sha256) == 64
+
+
+async def test_price_disagreement_with_rules_lowers_confidence(
+    roof_pdf: bytes, settings, tmp_path
+) -> None:
+    """Модель подставила в цену сумму обеспечения — она есть в документе.
+
+    Цитата настоящая, сумма в тексте встречается, поэтому обе поверхностные
+    проверки довольны. Ловит только сверка с якорной ценой, и она обязана
+    отразиться в достоверности, а не остаться строчкой в warnings.
+    """
+    security_quote = "5% начальной (максимальной) цены контракта — 624 017,50 рубля"
+    provider = ScriptedProvider(
+        [chunk_payload(price=money(624017.50, "624 017,50 рубля", evidence(1, security_quote)))]
+    )
+    result = await _pipeline(provider, settings, tmp_path).run(data=roof_pdf, filename="t.pdf")
+
+    assert result.price is not None and result.price.amount == 624017.50
+    assert result.confidence <= 0.75
+    assert any("Расхождение по цене контракта" in w for w in result.warnings)
+
+
+async def test_substituted_quote_is_reported_separately(
+    roof_pdf: bytes, settings, tmp_path
+) -> None:
+    """Подмена числа в цитате — отдельный диагноз, а не «цитата не найдена»."""
+    fabricated = "Начальная (максимальная) цена контракта составляет 99 999 999,00"
+    provider = ScriptedProvider(
+        [chunk_payload(price=money(99999999.0, "99 999 999,00", evidence(1, fabricated)))]
+    )
+    result = await _pipeline(provider, settings, tmp_path).run(data=roof_pdf, filename="t.pdf")
+
+    assert result.price.evidence is not None and not result.price.evidence.verified
+    assert any("числа или слова не сходятся" in w for w in result.warnings)
+
+
+async def test_failure_reason_reaches_the_client(roof_pdf: bytes, settings, tmp_path) -> None:
+    """Голое «не получилось» не даёт понять, дело в ключе, сети или балансе."""
+    from app.core.exceptions import LLMError as _LLMError
+
+    class BrokenProvider(ScriptedProvider):
+        async def complete_json(self, *, system, user, schema_model, max_output_tokens=16_000):
+            raise _LLMError(
+                "Anthropic вернул ошибку 400.",
+                details={"reason": "Your credit balance is too low"},
+            )
+
+    with pytest.raises(LLMError) as failure:
+        await _pipeline(BrokenProvider([chunk_payload()]), settings, tmp_path).run(
+            data=roof_pdf, filename="t.pdf"
+        )
+
+    assert "credit balance" in failure.value.message
+    assert failure.value.details["reason"]
+
+
+async def test_cached_result_keeps_the_requested_filename(roof_pdf: bytes, tmp_path) -> None:
+    """Кэш ищется по содержимому: тот же документ приходит под разными именами."""
+    settings = Settings(cache_enabled=True, ocr_enabled=False, cache_dir=tmp_path / "cache")
+    pipeline = _pipeline(ScriptedProvider([chunk_payload()]), settings, tmp_path)
+
+    await pipeline.run(data=roof_pdf, filename="первый.pdf")
+    second = await pipeline.run(data=roof_pdf, filename="второй.pdf")
+
+    assert second.meta.cached is True
+    assert second.document.filename == "второй.pdf"
+
+
+async def test_offline_summary_has_no_zero_amounts(roof_pdf: bytes, settings, tmp_path) -> None:
+    """Сентинел «суммы нет» — это ноль, и он не должен печататься как цена."""
+    result = await _pipeline(OfflineProvider(), settings, tmp_path).run(
+        data=roof_pdf, filename="t.pdf"
+    )
+    zero_amount = re.compile(r"(?<!\d)0,00 руб\.")
+    assert not zero_amount.search(result.summary)
+    assert all(not zero_amount.search(risk) for risk in result.risks)

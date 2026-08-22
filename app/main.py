@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.api.errors import register_error_handlers
 from app.api.routes import router
 from app.core.config import get_settings
+from app.core.exceptions import ProviderNotConfiguredError
 from app.core.logging import get_logger, request_id_var, setup_logging
 from app.services.cache import SummaryCache
 from app.services.extraction.pipeline import SummarizationPipeline
@@ -27,6 +28,8 @@ from app.services.llm.factory import build_provider
 
 logger = get_logger(__name__)
 WEB_DIR = Path(__file__).resolve().parent / "web"
+# Запас на границы и заголовки multipart поверх самого файла.
+_MULTIPART_OVERHEAD = 8192
 
 DESCRIPTION = """\
 Сервис извлекает из документации госзакупок структурированную выжимку:
@@ -46,7 +49,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     setup_logging(settings.log_level)
 
-    provider = build_provider(settings)
+    try:
+        provider = build_provider(settings)
+    except ProviderNotConfiguredError as exc:
+        # Не роняем приложение трассировкой: конфигурационная ошибка должна
+        # читаться в логе одной строкой, а не тонуть в стеке вызовов.
+        logger.error("Сервис не запущен. %s", exc.message)
+        raise SystemExit(1) from None
     cache = SummaryCache(settings.cache_dir, settings.cache_enabled)
 
     app.state.settings = settings
@@ -91,28 +100,57 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
+    async def reject_oversized_body(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Отказ по Content-Length до разбора тела запроса.
+
+        Без этого FastAPI сначала полностью принимает multipart (крупная часть
+        уходит во временный файл на диске) и только потом обработчик смотрит на
+        размер. Заголовку можно не поверить — он не обязателен и его можно
+        подделать, — поэтому проверка в обработчике остаётся. Но честную
+        большую загрузку она отсекает сразу.
+        """
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit():
+            limit = settings.max_upload_bytes + _MULTIPART_OVERHEAD
+            if int(declared) > limit:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "code": "file_too_large",
+                        "message": (f"Тело запроса больше допустимых {settings.max_upload_mb} МБ."),
+                        "details": {"limit_bytes": settings.max_upload_bytes},
+                        "request_id": None,
+                    },
+                )
+        return await call_next(request)
+
+    @app.middleware("http")
     async def request_context(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        token = request_id_var.set(uuid.uuid4().hex[:8])
+        request_id = uuid.uuid4().hex[:8]
+        token = request_id_var.set(request_id)
         started = time.perf_counter()
         try:
             response = await call_next(request)
+            elapsed = int((time.perf_counter() - started) * 1000)
+            response.headers["X-Request-Id"] = request_id
+            response.headers["X-Process-Time-Ms"] = str(elapsed)
+            # Логируем и проставляем заголовок ДО сброса контекста: иначе и в
+            # заголовке, и в строке лога окажется прочерк вместо идентификатора.
+            if request.url.path.startswith("/api"):
+                logger.info(
+                    "%s %s → %s за %d мс",
+                    request.method,
+                    request.url.path,
+                    response.status_code,
+                    elapsed,
+                )
+            return response
         finally:
             request_id_var.reset(token)
-
-        elapsed = int((time.perf_counter() - started) * 1000)
-        response.headers["X-Request-Id"] = request_id_var.get()
-        response.headers["X-Process-Time-Ms"] = str(elapsed)
-        if request.url.path.startswith("/api"):
-            logger.info(
-                "%s %s → %s за %d мс",
-                request.method,
-                request.url.path,
-                response.status_code,
-                elapsed,
-            )
-        return response
 
     register_error_handlers(app)
     app.include_router(router, prefix="/api/v1")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from app.core.logging import get_logger
@@ -24,11 +25,20 @@ logger = get_logger(__name__)
 
 # Меняется вместе с форматом TenderSummary — старые записи станут недоступны.
 CACHE_VERSION = "v1"
+# Имя модели приходит из конфигурации и попадает в имя файла. Слеши и точки в
+# нём увели бы запись за пределы каталога кэша — например, при опечатке в
+# ANTHROPIC_MODEL вида ../../.
+_UNSAFE_IN_KEY_RE = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def content_hash(data: bytes) -> str:
     """SHA-256 содержимого файла."""
     return hashlib.sha256(data).hexdigest()
+
+
+def _sanitize(value: str) -> str:
+    """Оставляет в компоненте ключа только безопасные для имени файла символы."""
+    return _UNSAFE_IN_KEY_RE.sub("_", value)[:64]
 
 
 class SummaryCache:
@@ -41,7 +51,9 @@ class SummaryCache:
             directory.mkdir(parents=True, exist_ok=True)
 
     def key(self, sha256: str, provider: str, model: str | None) -> str:
-        return f"{CACHE_VERSION}-{provider}-{model or 'none'}-{sha256[:32]}"
+        safe_provider = _sanitize(provider)
+        safe_model = _sanitize(model or "none")
+        return f"{CACHE_VERSION}-{safe_provider}-{safe_model}-{sha256[:32]}"
 
     def get(self, key: str) -> TenderSummary | None:
         if not self._enabled:

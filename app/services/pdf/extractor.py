@@ -131,18 +131,29 @@ def extract_document(data: bytes, settings: Settings) -> DocumentText:
             logger.warning("OCR включён в конфиге, но tesseract недоступен — сканы не распознаются")
 
         pages: list[PageText] = []
+        total_chars = 0
         for index in range(page_count):
             page = pdf[index]
-            text = normalize_text(_read_text_layer(page))
+            text = normalize_text(_read_text_layer(page, settings.max_document_chars))
             source: PageSource = "text_layer" if text else "empty"
 
             if len(text) < settings.ocr_min_chars_per_page and ocr_ready:
-                recognized = normalize_text(_read_via_ocr(page, settings.ocr_dpi, ocr_lang))
+                recognized = normalize_text(
+                    _read_via_ocr(page, settings.ocr_dpi, ocr_lang, settings.max_render_pixels)
+                )
                 if len(recognized) > len(text):
                     text, source = recognized, "ocr"
 
             pages.append(PageText(number=index + 1, text=text, source=source))
             page.close()
+
+            total_chars += len(text)
+            if total_chars > settings.max_document_chars:
+                raise DocumentTooLongError(
+                    f"Из документа извлечено больше {settings.max_document_chars} символов "
+                    f"текста — разбор прекращён на странице {index + 1}.",
+                    details={"characters": total_chars, "limit": settings.max_document_chars},
+                )
     finally:
         pdf.close()
 
@@ -166,21 +177,47 @@ def extract_document(data: bytes, settings: Settings) -> DocumentText:
     return document
 
 
-def _read_text_layer(page: pdfium.PdfPage) -> str:
+def _safe_scale(page: pdfium.PdfPage, dpi: int, max_pixels: int) -> float:
+    """Масштаб рендера, ограниченный площадью растра.
+
+    Страница с огромным MediaBox при обычном dpi даёт битмап на сотни мегабайт;
+    файл при этом весит килобайты и проходит любой лимит загрузки.
+    """
+    scale = dpi / 72
+    width, height = page.get_size()
+    pixels = (width * scale) * (height * scale)
+    if pixels > max_pixels and pixels > 0:
+        scale *= (max_pixels / pixels) ** 0.5
+        logger.warning("Страница слишком велика для рендера, масштаб снижен до %.2f", scale)
+    return scale
+
+
+def _read_text_layer(page: pdfium.PdfPage, max_chars: int) -> str:
     try:
         textpage = page.get_textpage()
     except Exception as exc:  # pragma: no cover — битая страница внутри валидного PDF
         logger.warning("Не удалось прочитать текстовый слой страницы: %s", exc)
         return ""
     try:
+        # Сначала количество символов, потом сам текст: на странице, набитой
+        # мусором, материализация строки удвоила бы и без того огромный расход
+        # памяти, а число символов известно сразу и стоит бесплатно.
+        count = textpage.count_chars()
+        if count > max_chars:
+            raise DocumentTooLongError(
+                f"На одной странице {count} символов текста — это больше предела "
+                f"{max_chars}. Похоже на намеренно раздутый документ.",
+                details={"characters": count, "limit": max_chars},
+            )
         return textpage.get_text_bounded()
     finally:
         textpage.close()
 
 
-def _read_via_ocr(page: pdfium.PdfPage, dpi: int, lang: str) -> str:
+def _read_via_ocr(page: pdfium.PdfPage, dpi: int, lang: str, max_pixels: int) -> str:
     try:
-        bitmap = page.render(scale=dpi / 72)
+        scale = _safe_scale(page, dpi, max_pixels)
+        bitmap = page.render(scale=scale)
         image = bitmap.to_pil()
     except Exception as exc:  # pragma: no cover — зависит от содержимого страницы
         logger.warning("Не удалось отрендерить страницу для OCR: %s", exc)
