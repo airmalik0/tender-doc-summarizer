@@ -75,18 +75,18 @@ def merge_chunks(extractions: list[ChunkExtraction]) -> MergedFacts:
     )
     merged.contract_security, security_conflict = _merge_money(
         _non_empty(item.contract_security for item in extractions),
-        "обеспечение исполнения контракта",
+        "обеспечения исполнения контракта",
     )
 
     merged.application_deadline, deadline_conflict = _merge_date(
         _non_empty(item.application_deadline for item in extractions),
-        "дату окончания подачи заявок",
+        "даты окончания подачи заявок",
     )
     merged.contract_start, start_conflict = _merge_date(
-        _non_empty(item.contract_start for item in extractions), "дату начала исполнения"
+        _non_empty(item.contract_start for item in extractions), "даты начала исполнения"
     )
     merged.contract_end, end_conflict = _merge_date(
-        _non_empty(item.contract_end for item in extractions), "дату окончания исполнения"
+        _non_empty(item.contract_end for item in extractions), "даты окончания исполнения"
     )
 
     merged.stages = _dedupe(
@@ -153,7 +153,7 @@ def _merge_money(values: list[RawMoney], label: str) -> tuple[RawMoney | None, s
         listed = ", ".join(f"{amount:,.2f}".replace(",", " ") for amount in sorted(counter))
         conflict = (
             f"Фрагменты документа называют разные значения на {label}: {listed}. "
-            f"Выбрано наиболее частое."
+            f"Выбрано наиболее частое, при равенстве — из более раннего фрагмента."
         )
     return winner, conflict
 
@@ -175,7 +175,8 @@ def _merge_date(values: list[RawDate], label: str) -> tuple[RawDate | None, str 
     if len(counter) > 1:
         conflict = (
             f"Фрагменты документа называют разные значения на {label}: "
-            f"{', '.join(sorted(str(item) for item in counter))}. Выбрано наиболее частое."
+            f"{', '.join(sorted(str(item) for item in counter))}. "
+            f"Выбрано наиболее частое, при равенстве — из более раннего фрагмента."
         )
     return winner, conflict
 
@@ -215,9 +216,12 @@ def _dedupe[T](items: list[T], key: Callable[[T], str]) -> list[T]:
 def _similar(left: str, right: str) -> bool:
     if left == right:
         return True
-    # Обрезанный на границе фрагмента текст — начало более полного.
+    # Обрезанный на границе фрагмента текст — начало более полного. Сравнивать
+    # только первые сорок символов нельзя: типовые требования начинаются
+    # одинаково («Наличие действующей лицензии МЧС России на …»), и два разных
+    # требования схлопывались бы в одно.
     shorter, longer = sorted((left, right), key=len)
-    if len(shorter) >= 40 and longer.startswith(shorter[:40]):
+    if len(shorter) >= 40 and longer.startswith(shorter):
         return True
     if abs(len(left) - len(right)) > max(len(left), len(right)) * 0.5:
         return False

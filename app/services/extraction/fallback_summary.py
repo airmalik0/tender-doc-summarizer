@@ -30,13 +30,13 @@ def build_fallback_synthesis(facts: MergedFacts) -> DocumentSynthesis:
         number = f" (извещение № {facts.procurement_number})" if facts.procurement_number else ""
         sentences.append(f"Закупка проводится по {facts.law}{number}.")
 
-    if facts.price and facts.price.amount is not None:
+    if facts.price and facts.price.amount > 0:
         vat = f", НДС {facts.price.vat}" if facts.price.vat else ""
         sentences.append(
             f"Начальная (максимальная) цена контракта — {_money(facts.price.amount)}{vat}."
         )
 
-    if facts.contract_security and facts.contract_security.amount is not None:
+    if facts.contract_security and facts.contract_security.amount > 0:
         sentences.append(
             f"Обеспечение исполнения контракта — {_money(facts.contract_security.amount)}."
         )
@@ -63,7 +63,7 @@ def _risks(facts: MergedFacts) -> list[str]:
         if len(risks) >= 3:
             break
 
-    if facts.contract_security and facts.contract_security.amount is not None:
+    if facts.contract_security and facts.contract_security.amount > 0:
         risks.append(
             f"На время исполнения контракта замораживается обеспечение "
             f"{_money(facts.contract_security.amount)}."

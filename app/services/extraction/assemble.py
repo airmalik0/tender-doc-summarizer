@@ -50,6 +50,7 @@ class _EvidenceChecker:
         self._index = index
         self.total = 0
         self.unverified = 0
+        self.mismatches = 0
         self.page_corrections = 0
 
     def convert(self, raw: RawEvidence | None) -> Evidence | None:
@@ -57,9 +58,12 @@ class _EvidenceChecker:
             return None
 
         self.total += 1
-        check = self._index.check(raw.quote, raw.page)
+        # Страница 0 значит «модель её не указала» — искать цитату это не мешает.
+        check = self._index.check(raw.quote, raw.page if raw.page > 0 else None)
         if not check.verified:
             self.unverified += 1
+            if check.is_mismatch:
+                self.mismatches += 1
         elif check.page is not None and check.page != raw.page:
             self.page_corrections += 1
 
@@ -97,6 +101,14 @@ def assemble_summary(
     requirements = [_requirement(item, checker) for item in facts.requirements]
     penalties = [_penalty(item, checker) for item in facts.penalties]
 
+    price_disagrees = (
+        price is not None
+        and price.amount is not None
+        and rules.price is not None
+        and abs(price.amount - rules.price.amount) > AMOUNT_TOLERANCE
+    )
+    ambiguous_price = len(rules.price_candidates) > 1
+
     collected.extend(facts.conflicts)
     collected.extend(
         _quality_warnings(
@@ -129,13 +141,24 @@ def assemble_summary(
         meta=meta,
     )
     summary.confidence = compute_confidence(
-        summary, checker=checker, offline=meta.provider == "offline"
+        summary,
+        checker=checker,
+        offline=meta.provider == "offline",
+        price_disagrees=price_disagrees,
+        ambiguous_price=ambiguous_price,
+        conflicts=len(facts.conflicts),
     )
     return summary
 
 
 def compute_confidence(
-    summary: TenderSummary, *, checker: _EvidenceChecker, offline: bool
+    summary: TenderSummary,
+    *,
+    checker: _EvidenceChecker,
+    offline: bool,
+    price_disagrees: bool = False,
+    ambiguous_price: bool = False,
+    conflicts: int = 0,
 ) -> float:
     """Оценка достоверности разбора.
 
@@ -170,6 +193,18 @@ def compute_confidence(
     if checker.total:
         unverified_share = checker.unverified / checker.total
         score -= 0.25 * unverified_share
+
+    if price_disagrees:
+        # Модель и детерминированный парсер назвали разные цены контракта.
+        # Одна из них неверна, и это худшее, что может случиться с разбором,
+        # — предупреждения в ответе для такого случая мало.
+        score -= 0.30
+    if ambiguous_price:
+        # В самом документе цена названа несколько раз и по-разному.
+        score -= 0.10
+    if conflicts:
+        # Фрагменты документа разошлись в показаниях.
+        score -= min(0.15, 0.05 * conflicts)
 
     if summary.document.ocr_pages:
         # Распознанный текст всегда чуть менее надёжен, чем текстовый слой.
@@ -303,10 +338,24 @@ def _quality_warnings(
     ):
         messages.append("Сроки не найдены.")
 
+    if len(rules.price_candidates) > 1:
+        listed = ", ".join(
+            f"{amount:,.2f}".replace(",", " ") for amount in sorted(rules.price_candidates)
+        )
+        messages.append(
+            f"В документе несколько разных сумм у формулировки цены контракта: {listed}. "
+            f"Проверьте, какая из них относится к предмету закупки."
+        )
+
     if checker.unverified:
         messages.append(
             f"Цитат не найдено в тексте документа: {checker.unverified} из {checker.total}. "
             f"Соответствующие значения помечены verified=false."
+        )
+    if checker.mismatches:
+        messages.append(
+            f"Цитат, где текст похож, а числа или слова не сходятся: {checker.mismatches}. "
+            f"Это характерно для подмены суммы или срока — проверьте такие значения вручную."
         )
     if checker.page_corrections:
         messages.append(

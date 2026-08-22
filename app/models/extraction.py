@@ -66,7 +66,9 @@ class RawEvidence(BaseModel):
 
     @property
     def is_empty(self) -> bool:
-        return self.page <= 0 or len(self.quote.strip()) < MIN_MEANINGFUL_QUOTE
+        # Номер страницы здесь ни при чём: цитату без страницы всё равно можно
+        # найти в документе поиском, а вот без текста подтверждать нечего.
+        return len(self.quote.strip()) < MIN_MEANINGFUL_QUOTE
 
 
 class RawMoney(BaseModel):
