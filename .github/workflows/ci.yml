@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Линтеры и типы
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Установка зависимостей
+        run: pip install -r requirements-dev.txt
+
+      - name: ruff
+        run: ruff check app tests scripts
+
+      - name: black
+        run: black --check app tests scripts
+
+      - name: mypy
+        run: mypy app
+
+  test:
+    name: Тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Установка зависимостей
+        run: pip install -r requirements-dev.txt
+
+      # Ключи не задаются намеренно: весь набор тестов обязан проходить
+      # без сети и без денег.
+      - name: pytest
+        run: pytest -q
+
+  docker:
+    name: Сборка образа и дымовой прогон
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Сборка образа
+        run: docker build -t tender-doc-summarizer:ci .
+
+      - name: Запуск контейнера
+        run: |
+          docker run -d --name tender-ci -p 8000:8000 \
+            -e LLM_PROVIDER=offline \
+            tender-doc-summarizer:ci
+
+      - name: Ожидание готовности
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:8000/api/v1/health > /dev/null; then
+              echo "сервис поднялся с $attempt попытки"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "сервис не поднялся"
+          docker logs tender-ci
+          exit 1
+
+      - name: OCR внутри образа доступен
+        run: |
+          docker exec tender-ci tesseract --list-langs | grep -q rus \
+            || { echo "русский языковой пакет tesseract отсутствует"; exit 1; }
+
+      # Разбор без ключа идёт на детерминированных правилах — значит,
+      # весь путь от загрузки PDF до готового JSON проверяется целиком.
+      - name: Разбор демонстрационного документа
+        run: |
+          curl -sf -X POST \
+            "http://localhost:8000/api/v1/summarize/sample?name=tender-44fz-remont-krovli.pdf" \
+            -o result.json
+          python - <<'PY'
+          import json, sys
+
+          data = json.load(open("result.json"))
+          price = (data.get("price") or {}).get("amount")
+          print("цена:", price, "достоверность:", data["confidence"],
+                "требований:", len(data["requirements"]),
+                "санкций:", len(data["penalties"]))
+
+          problems = []
+          if price != "12480350.00":
+              problems.append(f"цена контракта разобрана неверно: {price}")
+          if not data["requirements"]:
+              problems.append("требования не извлечены")
+          if not data["penalties"]:
+              problems.append("меры ответственности не извлечены")
+          if data["meta"]["provider"] != "offline":
+              problems.append("ожидался offline-режим без ключа")
+
+          if problems:
+              sys.exit("; ".join(problems))
+          PY
+
+      - name: Логи контейнера при падении
+        if: failure()
+        run: docker logs tender-ci

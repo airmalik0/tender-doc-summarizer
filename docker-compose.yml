@@ -1,0 +1,51 @@
+# Запуск одной командой:
+#
+#     docker compose up --build
+#
+# Интерфейс — http://localhost:8000, документация API — /docs.
+#
+# Ключ LLM не обязателен: без него сервис поднимется и будет разбирать
+# документы детерминированными правилами. Чтобы включить полноценное
+# извлечение, скопируйте .env.example в .env и впишите ANTHROPIC_API_KEY —
+# compose подхватит .env автоматически.
+
+services:
+  api:
+    build: .
+    image: tender-doc-summarizer:latest
+    container_name: tender-summarizer
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      LLM_PROVIDER: "${LLM_PROVIDER:-auto}"
+
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-opus-5}"
+      ANTHROPIC_EFFORT: "${ANTHROPIC_EFFORT:-medium}"
+
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o}"
+
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.5-flash}"
+
+      OCR_ENABLED: "${OCR_ENABLED:-true}"
+      OCR_LANG: "${OCR_LANG:-rus+eng}"
+      OCR_DPI: "${OCR_DPI:-220}"
+
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
+      MAX_PAGES: "${MAX_PAGES:-400}"
+      CHUNK_CHARS: "${CHUNK_CHARS:-14000}"
+      MAX_CHUNKS: "${MAX_CHUNKS:-12}"
+
+      CACHE_ENABLED: "${CACHE_ENABLED:-true}"
+      CACHE_DIR: "/app/data/cache"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    volumes:
+      # Кэш разборов переживает пересоздание контейнера: повторная загрузка
+      # того же файла не стоит ни секунды, ни токена.
+      - tender-cache:/app/data/cache
+    restart: unless-stopped
+
+volumes:
+  tender-cache:
