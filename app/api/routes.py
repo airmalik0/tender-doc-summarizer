@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel, Field
 
+from app.api.deps import get_pipeline, get_provider, get_settings
 from app.core.config import Settings
 from app.core.exceptions import (
     FileTooLargeError,
@@ -18,7 +19,6 @@ from app.models.summary import HealthResponse, TenderSummary
 from app.services.extraction.pipeline import SummarizationPipeline
 from app.services.llm.base import LLMProvider
 from app.services.pdf.ocr import ocr_available
-from app.api.deps import get_pipeline, get_provider, get_settings
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -37,8 +37,12 @@ class SampleFile(BaseModel):
 
 
 SAMPLE_TITLES = {
-    "tender-44fz-remont-krovli.pdf": "Электронный аукцион: капремонт кровли школы (текстовый PDF)",
-    "tender-44fz-postavka-oborudovaniya.pdf": "Запрос котировок: поставка медоборудования (текстовый PDF)",
+    "tender-44fz-remont-krovli.pdf": (
+        "Электронный аукцион: капремонт кровли школы (текстовый PDF)"
+    ),
+    "tender-44fz-postavka-oborudovaniya.pdf": (
+        "Запрос котировок: поставка медоборудования (текстовый PDF)"
+    ),
     "tender-scan-postavka-kanctovarov.pdf": "Извещение о закупке канцтоваров (скан, требует OCR)",
 }
 

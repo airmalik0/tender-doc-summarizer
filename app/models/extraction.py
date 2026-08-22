@@ -121,7 +121,10 @@ class RawStage(BaseModel):
 
     name: str = Field(description="Краткое название этапа, до 120 символов.")
     deadline_text: str = Field(
-        description="Срок этапа так, как он сформулирован в документе. Пустая строка, если срок не указан."
+        description=(
+            "Срок этапа так, как он сформулирован в документе. "
+            "Пустая строка, если срок не указан."
+        )
     )
     evidence: RawEvidence = Field(description="Цитата, подтверждающая этап и его срок.")
 
@@ -180,7 +183,9 @@ class ChunkExtraction(BaseModel):
     и выдумывать их, лишь бы заполнить схему, модель не должна.
     """
 
-    subject: str = Field(description="Предмет закупки одной строкой. Пустая строка, если во фрагменте его нет.")
+    subject: str = Field(
+        description="Предмет закупки одной строкой. Пустая строка, если во фрагменте его нет."
+    )
     customer: str = Field(description="Полное наименование заказчика. Пустая строка, если его нет.")
     procurement_number: str = Field(
         description="Номер извещения или закупки, обычно 19 цифр. Пустая строка, если его нет."

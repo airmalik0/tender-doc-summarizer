@@ -60,9 +60,7 @@ def resolve_lang(requested: str) -> str:
     wanted = [code for code in requested.split("+") if code]
     usable = [code for code in wanted if code in installed]
     if not usable:
-        logger.warning(
-            "Ни один из языков %s не установлен, откатываюсь на eng", "+".join(wanted)
-        )
+        logger.warning("Ни один из языков %s не установлен, откатываюсь на eng", "+".join(wanted))
         return "eng" if "eng" in installed else next(iter(sorted(installed)))
     if len(usable) != len(wanted):
         missing = set(wanted) - set(usable)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -91,7 +91,9 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def request_context(request: Request, call_next):  # noqa: ANN001, ANN202
+    async def request_context(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         token = request_id_var.set(uuid.uuid4().hex[:8])
         started = time.perf_counter()
         try:
@@ -103,7 +105,13 @@ def create_app() -> FastAPI:
         response.headers["X-Request-Id"] = request_id_var.get()
         response.headers["X-Process-Time-Ms"] = str(elapsed)
         if request.url.path.startswith("/api"):
-            logger.info("%s %s → %s за %d мс", request.method, request.url.path, response.status_code, elapsed)
+            logger.info(
+                "%s %s → %s за %d мс",
+                request.method,
+                request.url.path,
+                response.status_code,
+                elapsed,
+            )
         return response
 
     register_error_handlers(app)

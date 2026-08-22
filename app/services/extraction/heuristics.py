@@ -35,8 +35,18 @@ PERCENT_RE = re.compile(rf"(?P<value>{_NUMBER})\s*(?:\([^)]{{0,80}}\)\s*)?(?:%|�
 DATE_DIGITS_RE = re.compile(r"\b(?P<day>\d{1,2})\.(?P<month>\d{1,2})\.(?P<year>\d{4})\b")
 
 _MONTHS = {
-    "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
-    "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
 }
 DATE_WORDS_RE = re.compile(
     r"\b(?P<day>\d{1,2})\s+(?P<month>" + "|".join(_MONTHS) + r")\s+(?P<year>\d{4})",
@@ -213,7 +223,9 @@ def find_penalties(pages: list[tuple[int, str]]) -> list[PenaltyHit]:
             if len(sentence) < 40:
                 continue
             kind = "пеня" if "пен" in lowered or PENALTY_FORMULA_RE.search(lowered) else "штраф"
-            hits.append(PenaltyHit(kind=kind, sentence=" ".join(sentence.split()), page=page_number))
+            hits.append(
+                PenaltyHit(kind=kind, sentence=" ".join(sentence.split()), page=page_number)
+            )
     return hits
 
 
@@ -298,7 +310,9 @@ def detect_law(text: str) -> str:
     if has_44 and has_223:
         # Оба упомянуты — обычно 223-ФЗ цитирует 44-ФЗ или наоборот.
         # Считаем основным тот, что встречается чаще.
-        return "44-ФЗ" if len(LAW_44_RE.findall(text)) >= len(LAW_223_RE.findall(text)) else "223-ФЗ"
+        return (
+            "44-ФЗ" if len(LAW_44_RE.findall(text)) >= len(LAW_223_RE.findall(text)) else "223-ФЗ"
+        )
     return "не определено"
 
 

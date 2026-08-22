@@ -32,7 +32,9 @@ def build_fallback_synthesis(facts: MergedFacts) -> DocumentSynthesis:
 
     if facts.price and facts.price.amount is not None:
         vat = f", НДС {facts.price.vat}" if facts.price.vat else ""
-        sentences.append(f"Начальная (максимальная) цена контракта — {_money(facts.price.amount)}{vat}.")
+        sentences.append(
+            f"Начальная (максимальная) цена контракта — {_money(facts.price.amount)}{vat}."
+        )
 
     if facts.contract_security and facts.contract_security.amount is not None:
         sentences.append(
@@ -74,7 +76,7 @@ def _risks(facts: MergedFacts) -> list[str]:
     return risks[:5]
 
 
-def _money(amount: Decimal) -> str:
+def _money(amount: float | Decimal) -> str:
     """1234567.89 → «1 234 567,89 руб.»"""
     formatted = f"{amount:,.2f}".replace(",", " ").replace(".", ",")
     return f"{formatted} руб."

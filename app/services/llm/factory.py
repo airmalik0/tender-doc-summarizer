@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.core.config import Settings
 from app.core.exceptions import ProviderNotConfiguredError
 from app.core.logging import get_logger
@@ -22,7 +24,9 @@ logger = get_logger(__name__)
 # Порядок приоритета в режиме auto.
 PRIORITY = ("anthropic", "openai", "gemini")
 
-_CONSTRUCTORS = {
+# Тип указан явно: без него mypy сводит значения словаря к type[LLMProvider]
+# и справедливо ругается на создание абстрактного класса.
+_CONSTRUCTORS: dict[str, Callable[[Settings], LLMProvider]] = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
     "gemini": GeminiProvider,

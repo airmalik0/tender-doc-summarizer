@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -20,7 +20,9 @@ from app.models.summary import ErrorResponse
 logger = get_logger(__name__)
 
 
-def _response(status_code: int, code: str, message: str, details: dict | None = None) -> JSONResponse:
+def _response(
+    status_code: int, code: str, message: str, details: dict | None = None
+) -> JSONResponse:
     payload = ErrorResponse(
         code=code,
         message=message,
@@ -41,8 +43,10 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        # Код указан числом, а не константой Starlette: её имя менялось между
+        # версиями, и привязываться к нему в обработчике ошибок незачем.
         return _response(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            422,
             "validation_error",
             "Запрос не прошёл валидацию.",
             {"errors": exc.errors()[:5]},
@@ -57,7 +61,7 @@ def register_error_handlers(app: FastAPI) -> None:
         # Неожиданная ошибка: полная трассировка в лог, наружу — только код.
         logger.exception("Необработанная ошибка: %s", exc)
         return _response(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            500,
             "internal_error",
             "Внутренняя ошибка сервиса. Подробности — в логах по request_id.",
         )

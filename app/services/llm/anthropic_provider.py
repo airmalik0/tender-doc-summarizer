@@ -57,13 +57,14 @@ class AnthropicProvider(LLMProvider):
                 # Системный промпт стабилен от вызова к вызову, поэтому помечаем
                 # его к кэшированию: при разборе многостраничного документа это
                 # снимает повторную оплату одного и того же префикса.
-                system=[
-                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-                ],
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user}],
                 output_config={
                     "effort": self._effort,
-                    "format": {"type": "json_schema", "schema": to_strict_json_schema(schema_model)},
+                    "format": {
+                        "type": "json_schema",
+                        "schema": to_strict_json_schema(schema_model),
+                    },
                 },
                 thinking={"type": "adaptive"},
             )
@@ -97,7 +98,9 @@ class AnthropicProvider(LLMProvider):
 
         text = "".join(block.text for block in response.content if block.type == "text")
         if not text.strip():
-            raise LLMError("Модель вернула пустой ответ.", details={"stop_reason": response.stop_reason})
+            raise LLMError(
+                "Модель вернула пустой ответ.", details={"stop_reason": response.stop_reason}
+            )
 
         return LLMResult(
             data=parse_json_payload(text, self.name),

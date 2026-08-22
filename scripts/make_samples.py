@@ -34,7 +34,7 @@ from reportlab.platypus import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sample_content import DOCUMENTS  # noqa: E402
+from sample_content import DOCUMENTS
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "samples"
@@ -79,7 +79,9 @@ def build_styles(font: str, bold: str) -> dict[str, ParagraphStyle]:
         "h1": ParagraphStyle(
             "h1", fontName=bold, fontSize=14, leading=18, alignment=TA_CENTER, spaceAfter=8
         ),
-        "h2": ParagraphStyle("h2", fontName=bold, fontSize=11.5, leading=15, spaceBefore=10, spaceAfter=6),
+        "h2": ParagraphStyle(
+            "h2", fontName=bold, fontSize=11.5, leading=15, spaceBefore=10, spaceAfter=6
+        ),
         "center": ParagraphStyle(
             "center", fontName=font, fontSize=10.5, leading=14, alignment=TA_CENTER, spaceAfter=4
         ),
@@ -143,7 +145,7 @@ def build_flowables(blocks: list[tuple[str, object]], styles: dict[str, Paragrap
     return flowables
 
 
-def draw_footer(canvas, doc) -> None:  # noqa: ANN001 — сигнатура задана reportlab
+def draw_footer(canvas, doc) -> None:
     canvas.saveState()
     canvas.setFont("DocFont", 8)
     canvas.setFillColor(colors.HexColor("#555555"))

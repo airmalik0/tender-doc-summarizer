@@ -41,7 +41,7 @@ from app.services.extraction.prompts import (
     build_synthesis_prompt,
 )
 from app.services.llm.base import LLMProvider, LLMUsage
-from app.services.pdf.extractor import DocumentText, extract_document
+from app.services.pdf.extractor import extract_document
 
 logger = get_logger(__name__)
 
@@ -184,7 +184,12 @@ class SummarizationPipeline:
 
         for chunk, outcome in zip(chunks, outcomes, strict=True):
             if isinstance(outcome, BaseException):
-                logger.warning("Фрагмент %d (стр. %s) не разобран: %s", chunk.index + 1, chunk.pages_label, outcome)
+                logger.warning(
+                    "Фрагмент %d (стр. %s) не разобран: %s",
+                    chunk.index + 1,
+                    chunk.pages_label,
+                    outcome,
+                )
                 warnings.append(
                     f"Фрагмент {chunk.index + 1} (страницы {chunk.pages_label}) не разобран: "
                     f"{getattr(outcome, 'message', str(outcome))}"
@@ -218,9 +223,7 @@ class SummarizationPipeline:
             "закон": facts.law,
             "цена": facts.price.model_dump(mode="json") if facts.price else None,
             "обеспечение": (
-                facts.contract_security.model_dump(mode="json")
-                if facts.contract_security
-                else None
+                facts.contract_security.model_dump(mode="json") if facts.contract_security else None
             ),
             "срок_исполнения": facts.duration_text,
             "окончание_подачи_заявок": (

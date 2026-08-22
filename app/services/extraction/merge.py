@@ -10,9 +10,10 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import TypeVar
+from typing import Protocol
 
 from app.models.extraction import (
     ChunkExtraction,
@@ -27,7 +28,12 @@ from app.services.extraction.verify import normalize
 # Выше этого порога два требования (или две санкции) считаются одним и тем же.
 SIMILARITY_THRESHOLD = 0.86
 
-T = TypeVar("T")
+
+class HasEmptyFlag(Protocol):
+    """Общее у Raw*-моделей: умение сказать, что значение пустое."""
+
+    @property
+    def is_empty(self) -> bool: ...
 
 
 @dataclass(slots=True)
@@ -108,7 +114,7 @@ def merge_chunks(extractions: list[ChunkExtraction]) -> MergedFacts:
     return merged
 
 
-def _non_empty(values) -> list:  # noqa: ANN001 — принимает генератор любых Raw*-моделей
+def _non_empty[T: HasEmptyFlag](values: Iterable[T]) -> list[T]:
     """Оставляет только заполненные значения."""
     return [value for value in values if not value.is_empty]
 
@@ -174,7 +180,7 @@ def _merge_date(values: list[RawDate], label: str) -> tuple[RawDate | None, str 
     return winner, conflict
 
 
-def _dedupe(items: list[T], key) -> list[T]:  # noqa: ANN001 — key возвращает строку из любого типа
+def _dedupe[T](items: list[T], key: Callable[[T], str]) -> list[T]:
     """Убирает повторы, приехавшие из перекрытия фрагментов.
 
     Точного совпадения строк недостаточно: одно и то же требование в двух

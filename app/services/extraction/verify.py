@@ -21,11 +21,27 @@ VerificationMethod = Literal["exact", "fuzzy", "not_found"]
 
 _QUOTE_CHARS = str.maketrans(
     {
-        "«": '"', "»": '"', "“": '"', "”": '"', "„": '"', "‟": '"',
-        "‘": "'", "’": "'", "‚": "'",
-        "–": "-", "—": "-", "‐": "-", "‑": "-", "−": "-",
-        " ": " ", " ": " ", " ": " ", " ": " ", "­": "",
-        "ё": "е", "Ё": "Е",
+        "«": '"',
+        "»": '"',
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "–": "-",
+        "—": "-",
+        "‐": "-",
+        "‑": "-",
+        "−": "-",
+        " ": " ",
+        " ": " ",
+        " ": " ",
+        " ": " ",
+        "­": "",
+        "ё": "е",
+        "Ё": "Е",
     }
 )
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -117,7 +133,9 @@ def _best_window_ratio(haystack: str, needle: str) -> float:
 
     padding = max(40, len(needle) // 2)
     aligned = anchor.a - anchor.b
-    window = haystack[max(0, aligned - padding) : min(len(haystack), aligned + len(needle) + padding)]
+    window = haystack[
+        max(0, aligned - padding) : min(len(haystack), aligned + len(needle) + padding)
+    ]
 
     matched = sum(
         block.size

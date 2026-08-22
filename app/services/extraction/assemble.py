@@ -128,7 +128,9 @@ def assemble_summary(
         warnings=collected,
         meta=meta,
     )
-    summary.confidence = compute_confidence(summary, checker=checker, offline=meta.provider == "offline")
+    summary.confidence = compute_confidence(
+        summary, checker=checker, offline=meta.provider == "offline"
+    )
     return summary
 
 
@@ -278,17 +280,22 @@ def _quality_warnings(
                 f"парсер по ключевым формулировкам — {rules.price.amount}."
             )
 
-    if contract_security is not None and contract_security.amount is not None:
-        if not contract_security.confirmed_by_rules:
-            messages.append(
-                f"Обеспечение исполнения контракта {contract_security.amount} "
-                f"не подтверждено детерминированным парсером."
-            )
+    if (
+        contract_security is not None
+        and contract_security.amount is not None
+        and not contract_security.confirmed_by_rules
+    ):
+        messages.append(
+            f"Обеспечение исполнения контракта {contract_security.amount} "
+            f"не подтверждено детерминированным парсером."
+        )
 
     if not requirements:
         messages.append("Требования к участникам не найдены.")
     if not penalties:
-        messages.append("Меры ответственности не найдены — это редкость для закупочной документации.")
+        messages.append(
+            "Меры ответственности не найдены — это редкость для закупочной документации."
+        )
     if (
         timeline.application_deadline is None
         and timeline.contract_end is None
